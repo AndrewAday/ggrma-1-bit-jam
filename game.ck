@@ -75,6 +75,7 @@ TODO:
 @import "lib/M.ck"
 @import "lib/T.ck"
 @import "lib/b2/b2DebugDraw.ck"
+@import "sfx.ck"
 @import "sound.ck"
 @import "HashMap.chug"
 @import "spring.ck"
@@ -180,14 +181,15 @@ Texture.load(me.dir() + "./assets/start_screen/star4.png", tex_load_desc),
 Texture.load(me.dir() + "./assets/start_screen/star5.png", tex_load_desc),
 Texture.load(me.dir() + "./assets/start_screen/star6.png", tex_load_desc),
 ] @=> Texture star_sprites[];
-// Texture.load(me.dir() + "./assets/egg_types/egg-tetris.png", tex_load_desc) @=> Texture egg_tetris_sprite;
-// Texture.load(me.dir() + "./assets/egg_types/egg-plus.png", tex_load_desc) @=> Texture egg_plus_sprite;
 
 // == sound ================================
 CKFXR sfx => dac;
 
 BGM_Playing bgm_play;
 BGM_Opening bgm_open;
+
+Sound snd(128);
+snd.syncBeat(now);
 
 // == graphics helpers ================================
 
@@ -307,7 +309,7 @@ class Physics {
     int begin_touch_events[0];
     int end_touch_events[0];
 
-    UI_Bool draw_b2_debug(true);
+    UI_Bool draw_b2_debug(false);
     DebugDraw debug_draw;
     debug_draw.layer(10);
     true => debug_draw.drawShapes;
@@ -408,6 +410,29 @@ Physics p;
     null,
 ] @=> Texture tile_tools[];
 
+[
+    null, // none
+    [snd.SOUND_SOIL1, snd.SOUND_SOIL2], // soil
+    [snd.SOUND_WOOD1, snd.SOUND_WOOD2], // wood
+    [snd.SOUND_STONE1, snd.SOUND_STONE2, snd.SOUND_STONE3], // stone
+    null, // coin
+    null, // spike
+    [snd.SOUND_EGG]
+] @=> int tile_sounds[][];
+
+string eventbox_text[0];
+
+fun void addEventText(string s) {
+    if (room == Room_Play) eventbox_text << s;
+}
+
+[
+    "You wonder whether you or the egg came first.",
+    "The depths call to you.",
+    "You wonder why you are here.",
+    "You wonder if Betsy ever did manage to cross the road."
+] @=> string random_event_text[];
+
 /*
 Egg mechanic: need X coins/keys to open lock. After openning, need to break the egg to get the power
 - will become clear what type of egg it is after opening 
@@ -428,6 +453,7 @@ Egg mechanic: need X coins/keys to open lock. After openning, need to break the 
     egg_plus_sprite,
     egg_tetris_sprite,
 ] @=> Texture egg_sprites[];
+int firstEggSpawned;
 
 class Player {
     int b2_body_id;
@@ -577,6 +603,10 @@ class Tile {
         // only spawn egg if we have enough coins
         if (rows_to_next_egg <= 0 && (n_coins > 5) && Math.randomf() < egg_probability.val()) {
             30 => rows_to_next_egg;
+            if (!firstEggSpawned) {
+                addEventText("You feel like you should break the egg.");
+                true => firstEggSpawned;
+            }
             egg(pos, Math.random2(0, EggType_Count - 1));
             return;
         }
@@ -725,6 +755,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
             // u a broke boi
             // TODO sound effect
             // TODO flavor text: "u r a poor chicken"
+            addEventText("You don't have enough coins brokie.");
             return;
         }
 
@@ -777,7 +808,13 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
         [tile] @=> Tile connected_tiles[];
         if (player.eggs[EggType_Connection]) allConnected(row, col) @=> connected_tiles;
 
-        <<< "dealing", dmg >>>;
+        spork ~ snd.play(
+            tile_sounds[tile.type][Math.random2(0, tile_sounds[tile.type].size() - 1)], // path
+            1.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
 
         for (auto tile : connected_tiles) {
             Math.max(0, tile.hp - dmg) => tile.hp;
@@ -799,6 +836,8 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                     levelUpEffect("+", tile_tools[player.tool], player.pos() + .5*g.UP, .3, .6);
                 }
 
+                if (Math.randomf() < .002) addEventText("YOU MINED A TILE HUEHUEH...");
+
                 // acquire egg
                 if (tile.type == TileType_Egg) {
                     true => player.eggs[tile.egg_type];
@@ -806,6 +845,20 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                     // TODO add egg acquire juice
 
                     // on acquire egg logic
+                    if (tile.egg_type == EggType_Spoiled) {
+                        "You feel disappointed." => string spoiled_text;
+                        if (Math.random2(0, 1)) {
+                            "You knew something smelled off." => spoiled_text;
+                        }
+                        addEventText(spoiled_text);
+                    } else {
+                        "You feel ashamed... But stronger." => string non_spoiled_text;
+                        if (Math.random2(0, 1)) {
+                            "Why did you do that????" => non_spoiled_text;
+                        }
+                        addEventText(non_spoiled_text);
+                    }
+
                     if (tile.egg_type == EggType_Juggernaut) {
                         .9 => player_size.val;
                         player.remakeCollider();
@@ -1081,7 +1134,7 @@ while (1) {
 
         .2 -=> pos.x;
         1 -=> pos.y;
-        (gametime / .1)$int % 6 => int curr_frame; 
+        (gametime / .1)$int % 6 => int curr_frame;
         g.sprite(
             coin_sprite, 6, curr_frame,
             pos, .5 * @(1, 1), 0, Color.WHITE
@@ -1090,12 +1143,12 @@ while (1) {
 
 
         // tool exp progress
-        // progressBar(
-        //     1.0 *  player.tool_exp[player.tool] / player.expToLevel(player.tool),
-        //     pos + @(.8, .25),
-        //     .3,
-        //     2.0
-        // );
+        progressBar(
+            1.0 *  player.tool_exp[player.tool] / player.expToLevel(player.tool),
+            pos + @(1.0, .25),
+            .3,
+            2.0
+        );
 
         // tool levels
         .5 -=> pos.y;
@@ -1113,8 +1166,32 @@ while (1) {
         g.sprite( pickaxe_sprite, pos, .3, 0 );
         g.text(" L" + player.tool_level[TileType_Stone], pos + @(.4, 0), .45);
         if (player.tool == TileType_Stone) g.square(pos, 0, active_tool_sz, Color.WHITE);
+    } 
+    
+    if (room == Room_Play) { // event box
+        g.n2w(-.95, 1-(1*aspect)) => vec2 pos;
 
+        g.pushLayer(1);
+        g.box(pos - @(-1.5, -0.5), 3, 5, Color.WHITE);
+        g.popLayer();
 
+        g.pushLayer(0.5);
+        g.boxFilled(pos - @(-1.5, 4.375), 3, 5, Color.BLACK);
+        g.popLayer();
+
+        g.pushTextControlPoint(@(0, 1));
+        g.pushTextMaxWidth(2.75);
+        for (int i; i < eventbox_text.size(); ++i) {
+            g.text(eventbox_text[i], pos - @(-0.175, -2.85 + 0.75 * (eventbox_text.size() - 1 - i)), .3);
+        }
+        g.popTextMaxWidth();
+        g.popTextControlPoint();
+
+        if (Math.randomf() < .001 && random_event_text.size() > 0) {
+            Math.random2(0, random_event_text.size()-1) => int randIx;
+            addEventText(random_event_text[randIx]);
+            random_event_text.erase(randIx);
+        }
     }
 
     { // egg list
@@ -1202,6 +1279,7 @@ while (1) {
             n_coins++;
             sfx.coin(72, 76);
             tile.empty();
+            addEventText("Your pockets feel a little bit heavier.");
         }
     }
 
@@ -1209,6 +1287,10 @@ while (1) {
 
     // controls
     { 
+        // if (GWindow.keyDown(GWindow.KEY_UP)) {
+        //     player.vel() + @(0, 1.2) => player.vel;
+        // }
+
         if (GWindow.keyDown(GWindow.KEY_UP) || GWindow.keyDown(GWindow.KEY_TAB)) {
             // cycle tools
             if (player.tool == TileType_Stone) TileType_Dirt => player.tool;
@@ -1298,12 +1380,13 @@ while (1) {
             if (shake_count == 2) {
                 bgm_open.stop();
                 bgm_play.play();
+                snd.syncBeat(now);
             }
+            addEventText("That was a big fall. You peed a little.");
         }
     }
     
     if (room == Room_Play) {
-        <<< room >>>;
         // update camera
         dt * camera_speed.val() => float scroll_dist;
         player_target_pos.val() + GG.camera().posY() - player.pos().y => float distance_from_threshold; 
