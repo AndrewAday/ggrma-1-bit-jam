@@ -110,7 +110,7 @@ public class Sound {
         loop => bufs[ix].loop;
         0 => bufs[ix].pos;
 
-        <<< "Playing sound:", ix >>>;
+        // <<< "Playing sound:", ix >>>;
         
         if (duration != 0::ms) {
             duration => now;

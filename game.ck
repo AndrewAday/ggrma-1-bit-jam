@@ -421,10 +421,20 @@ Physics p;
 ] @=> int tile_sounds[][];
 
 string eventbox_text[0];
-
 fun void addEventText(string s) {
     if (room != Room_Start) eventbox_text << s;
 }
+
+int depth100;
+int depth500;
+int depth1000;
+
+[
+    5.,
+    200.,
+    500.
+] @=> float end_depths[];
+0 => int end_depth_ix;
 
 [
     "You wonder whether you or the egg came first.",
@@ -666,6 +676,7 @@ fun vec2 gridpos(vec2 p) {
 
 // player params
 Player player; // TODO physics body
+null @=> Player @ other;
 5 => int n_coins;
 int shake_count;
 
@@ -682,6 +693,9 @@ int room;
 
 int ended;
 int playerEgg;
+int newChicken;
+int newChickenFallen;
+int newChickenPlayerCollision;
 
 float gametime;
 int difficulty;
@@ -759,6 +773,78 @@ fun Tile[] allConnected(int row, int col) {
     return tiles;
 }
 
+fun void wait(dur duration) {
+    now => time start;
+    while(now - start < duration) {
+        GG.nextFrame() => now;
+    }
+}
+fun static float lerp(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+int lastEggFrame;
+fun void endingAnimation() {
+    // turn chicken into egg
+    1::second => dur duration;
+    now => time start;
+    while (now - start < duration) {
+        GG.nextFrame() => now;
+        player.pos() + @(0, 0.05) => player.pos;
+    }
+    true => playerEgg;
+
+    // spawn chicken to mine you
+    wait(2::second);
+
+    true => newChicken;
+    Player p @=> other;
+    other.pos(g.n2w(-0.25, 1.2));
+
+    while (!newChickenFallen) {
+        GG.nextFrame() => now;
+    }
+
+    wait(0.5::second);
+
+    // move towards player egg
+    while (other.pos().x < player.pos().x && !newChickenPlayerCollision) {
+        GG.nextFrame() => now;
+        GG.dt() => float dt;
+        dt +=> other.animation_time_secs;
+        @(lerp(other.pos().x, player.pos().x, 0.01), other.pos().y) => other.pos;
+    }
+
+    // open player egg
+
+    for (int i; i<10; i++) {
+        wait(0.2::second);
+        spork ~ snd.play(
+            tile_sounds[TileType_Egg][Math.random2(0, tile_sounds[TileType_Egg].size() - 1)], // path
+            1.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
+        // attack anim
+        other.pos() => vec2 smear_pos;
+        float smear_rot;
+        .5*player_base_size.val() +=> smear_pos.x;
+        g.explode(smear_pos, .3, .3::second, Color.WHITE, smear_rot + Math.pi, Math.pi, ExplodeEffect.Shape_Squares);
+        
+        if (i % 3 == 0) {
+            (lastEggFrame + 1) % 5 => lastEggFrame;
+        }
+    }
+
+    player.pos(other.pos());
+    other.facing => player.facing;
+    false => playerEgg;
+    null @=> other;
+    false => ended;
+    Room_Play => room;
+    end_depth_ix++;
+}
+
 fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile was originally empty
     if (tile.hp <= 0) {
         T.err("mining an empty tile");
@@ -813,7 +899,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
     g.explode(smear_pos, .3, .3::second, Color.WHITE, smear_rot + Math.pi, Math.pi, ExplodeEffect.Shape_Squares);
 
     // only do dmg if tool matches
-    <<< player.tool, tile.type >>>;
+    // <<< player.tool, tile.type >>>;
     if (player.tool == tile.type || tile.type == TileType_Egg) {
         if (tile.type == TileType_Egg) {
             T.assert(tile.cost_to_unlock == 0, "egg should only be damaged if unlocked");
@@ -860,7 +946,8 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                 // acquire egg
                 if (tile.type == TileType_Egg) {
                     if (ended) {
-                        true => playerEgg;
+                        tile.empty();
+                        spork ~ endingAnimation();
                         return;
                     }
 
@@ -1061,7 +1148,7 @@ fun void init(int room) {
         // true => player.eggs[1];
         // true => player.eggs[2];
 
-        0 => n_coins;
+        50 => n_coins;
     }
 }
 
@@ -1086,7 +1173,7 @@ makeBody(@(-100, -4), @(-.5, 0));
 makeBody(@(.5, -4), @(100, 0));
 
 fun int legal(int r, int c) {
-    return (r >= 0 && r < MINE_H.val() - 1) && (c >= 0 && c < MINE_W.val() - 1);
+    return (r >= 0 && r <= MINE_H.val() - 1) && (c >= 0 && c <= MINE_W.val() - 1);
 }
 
 while (1) {
@@ -1329,6 +1416,16 @@ while (1) {
             "non-player collision"
         ); 
 
+        if (other != null && (touch_body_id_a == other.b2_body_id || touch_body_id_b == other.b2_body_id)) {
+            true => newChickenFallen;
+        }
+        if (other != null && 
+            ((touch_body_id_a == other.b2_body_id && touch_body_id_b == player.b2_body_id) || 
+            ((touch_body_id_a == player.b2_body_id && touch_body_id_b == other.b2_body_id))) 
+        ) {
+            true => newChickenPlayerCollision;
+        }
+
         touch_body_id_b => int contact_body_id;
         if (touch_body_id_b == player.b2_body_id) touch_body_id_a => contact_body_id;
 
@@ -1425,11 +1522,11 @@ while (1) {
             M.fract(player.pos().y) => float y;
             if (y < 0) 1 +=> y;
             (y < (.5 * player_size.val())) => int player_on_ground;
-            <<< "here", gridpos, tile_below.hp, player_on_ground, y, player_size.val() >>>;
+            // <<< "here", gridpos, tile_below.hp, player_on_ground, y, player_size.val() >>>;
             if (
                 (tile_below.hp > 0) && player_on_ground
             ) {
-                <<< "mining" >>>;
+                // <<< "mining" >>>;
                 mine(tile_below, row+1, col, Dir_Down);
             }
         }
@@ -1444,7 +1541,7 @@ while (1) {
 
         if (GWindow.keyDown(GWindow.Key_Left) && legal(row, col-1)) {
             (player.pos().x - player_tile_pos.x) < (-.5  + .5 * player_size.val() + .01) => int touching_side;
-            <<< row, col >>>;
+            // <<< row, col >>>;
             tilemap[row][col-1] @=> Tile tile_left;
             if ((tile_left.hp > 0) && touching_side) {
                 mine(tile_left, row, col-1, Dir_Left);
@@ -1458,21 +1555,40 @@ while (1) {
             shake_count++;
             if (shake_count == 1) {
                 bgm_open.play();
+                snd.syncBeat(now);
             }
             if (shake_count == 2) {
                 bgm_open.stop();
                 bgm_play.play();
                 snd.syncBeat(now);
-        }
+            }
+            if (ended) {
+                bgm_play.stop();
+                bgm_open.play();
+                snd.syncBeat(now);
+            }
             addEventText("That was a big fall. You peed a little.");
     }
+
+    if (depth >= 100 && !depth100) {
+        true => depth100;
+        addEventText("100m travelled. It's getting darker.");
+    }
+    if (depth >= 500 && !depth500) {
+        true => depth500;
+        addEventText("500m travelled. You're feeling colder.");
+    }
+    if (depth >= 1000 && !depth1000) {
+        true => depth1000;
+        addEventText("1000m travelled.");
+    }
     
-    if (depth > 25 && room != Room_End) {
+    if (depth > end_depths[end_depth_ix] && room != Room_End) {
         // init room end
         Room_End => room;
     }
 
-    if (room != Room_Start) {
+    if (room == Room_Play) {
     // update camera
         dt * camera_speed.val() => float scroll_dist;
         player_target_pos.val() + GG.camera().posY() - player.pos().y => float distance_from_threshold; 
@@ -1529,21 +1645,30 @@ while (1) {
             player.tool_scale_spring.x + 1 => float tool_sca;
             g.sprite( tile_tools[player.tool], player.pos() + @(0,.0), tool_sca * .5 * @(-player.facing, 1), 0, Color.WHITE);
         } else {
-            // gridpos(player.pos()) => vec2 gridpos;
-            gridpos.x $ int => int row;
-            gridpos.y $ int => int col;
-            tilemap[row][col+1] @=> Tile tile_right;
-            tilemap[row][col-1] @=> Tile tile_left;
-            tilemap[row+1][col] @=> Tile tile_down;
+            // gridpos.x $ int => int row;
+            // gridpos.y $ int => int col;
+            // tilemap[row][col+1] @=> Tile tile_right;
+            // tilemap[row][col-1] @=> Tile tile_left;
+            // tilemap[row+1][col] @=> Tile tile_down;
 
-            Tile @ tile;
-            if (tile_left != null && tile_left.type == TileType_Egg) tile_left @=> tile;
-            if (tile_right != null && tile_right.type == TileType_Egg) tile_right @=> tile;
-            if (tile_down != null && tile_down.type == TileType_Egg) tile_down @=> tile;
+            // Tile @ tile;
+            // if (tile_left != null && tile_left.type == TileType_Egg) tile_left @=> tile;
+            // if (tile_right != null && tile_right.type == TileType_Egg) tile_right @=> tile;
+            // if (tile_down != null && tile_down.type == TileType_Egg) tile_down @=> tile;
             g.sprite(
-                egg_sprite, 5, 0,
-                tile.pos(), (15.0/16) * @(1,1), 0, Color.WHITE
+                egg_sprite, 5, lastEggFrame,
+                player.pos(), (15.0/16) * @(1,1), 0, Color.WHITE
             );
+            
+            if (newChicken) {
+                (other.animation_time_secs / .05) $ int % 4 => int curr_frame;
+                g.sprite(
+                    chicken_sprite, 4, curr_frame,
+                    other.pos(), player_base_size.val() * @(other.facing, 1), 0, Color.WHITE
+                );
+                other.tool_scale_spring.x + 1 => float tool_sca;
+                g.sprite( tile_tools[other.tool], other.pos() + @(0,.0), tool_sca * .5 * @(-other.facing, 1), 0, Color.WHITE);
+            }
         }
     } g.popLayer();
 
