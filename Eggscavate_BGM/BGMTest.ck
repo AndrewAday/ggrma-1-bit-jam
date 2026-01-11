@@ -10,6 +10,8 @@ BGM_Opening bgm_open;
 
 <<<"Test">>>;
 
+bgm_open.play();
+
 fun void test()
 {
     <<<"Playing Opening">>>;
@@ -23,4 +25,6 @@ fun void test()
 
     bgm_play.stop();    
 }
-test();
+//test();
+
+1::day => now;  

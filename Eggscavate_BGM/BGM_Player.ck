@@ -1,17 +1,14 @@
 public class BGM_Playing
 {
-    SndBuf buffy => Gain g => NRev r => dac;
-    me.dir() + "ChickenPlaying.wav" => buffy.read;
+    SndBuf2 buffy => dac;
+    me.dir() + "BGM_Mine_The_Way.wav" => buffy.read;
     buffy.loop(1);
     buffy.gain(0);
-    
-    r.mix(0.02);
-    g.gain(2.0);
     
     fun void play()
     {
         buffy.pos(0);
-        buffy.gain(0.8);
+        buffy.gain(0.9);
     }
     
     fun void stop()
@@ -22,17 +19,17 @@ public class BGM_Playing
 
 public class BGM_Opening
 {
-    SndBuf buffy => JCRev r => dac;
-    me.dir() + "ChickenOpening.wav" => buffy.read;
+    SndBuf2 buffy => JCRev r => dac;
+    me.dir() + "BGM_Chicken_Or_Egg.wav" => buffy.read;
     buffy.loop(1);
     buffy.gain(0);
 
-    r.mix(0.05);
+    r.mix(0.01);
 
     fun void play()
     {
         buffy.pos(0);
-        buffy.gain(0.8);
+        buffy.gain(1.0);
     }
 
     fun void stop()

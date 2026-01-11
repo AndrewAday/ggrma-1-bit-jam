@@ -165,6 +165,7 @@ Texture.load(me.dir() + "./assets/egg_unlock.png", tex_load_desc) @=> Texture eg
 Texture.load(me.dir() + "./assets/egg_types/egg-spots.png", tex_load_desc) @=> Texture egg_spots_sprite;
 Texture.load(me.dir() + "./assets/egg_types/egg-tetris.png", tex_load_desc) @=> Texture egg_tetris_sprite;
 Texture.load(me.dir() + "./assets/egg_types/egg-plus.png", tex_load_desc) @=> Texture egg_plus_sprite;
+Texture.load(me.dir() + "./assets/egg_types/egg-foot.png", tex_load_desc) @=> Texture egg_foot_sprite;
 
 // start screen art
 Texture.load(me.dir() + "./assets/start_screen/title.png", tex_load_desc) @=> Texture title_sprite;
@@ -365,7 +366,8 @@ Physics p;
 4 => int TileType_Coin;
 5 => int TileType_Spike;
 6 => int TileType_Egg;
-7 => int TileType_Count; 
+7 => int TileType_Obsidian;
+8 => int TileType_Count; 
 
 [
     Color.MAGENTA,
@@ -440,18 +442,21 @@ Egg mechanic: need X coins/keys to open lock. After openning, need to break the 
 0 => int EggType_Spoiled; // dud. does nothing
 1 => int EggType_Juggernaut; // become larger. move slower. do more dmg
 2 => int EggType_Connection; // damaging a tile damages all tiles of the same time that are connected
-3 => int EggType_Count; // become larger. move slower. do more dmg
+3 => int EggType_Foot; // spike immunity
+4 => int EggType_Count; // become larger. move slower. do more dmg
 
 [
     "spoiled",
     "jeggernaut",
     "connegg",
+    "chickenfoot",
 ] @=> string egg_names[];
 
 [
     egg_spots_sprite,
     egg_plus_sprite,
     egg_tetris_sprite,
+    egg_foot_sprite,
 ] @=> Texture egg_sprites[];
 int firstEggSpawned;
 
@@ -666,6 +671,7 @@ float start_depth;
 
 0 => int Room_Start;
 1 => int Room_Play;
+2 => int Room_Death; // death sequence
 int room;
 
 float gametime;
@@ -907,7 +913,8 @@ fun void die() {
     Room_Start => room;
     Math.max(score, highscore) => highscore;
     b2Body.disable(player.b2_body_id);
-    GG.camera().posY(0);
+
+    // GG.camera().posY(0);
 }
 
 vec4 grass[0];
@@ -978,7 +985,7 @@ fun void init(int room) {
 
         player.eggs.zero();
         // true => player.eggs[1];
-        // true => player.eggs[2];
+        true => player.eggs[EggType_Foot];
 
         0 => n_coins;
     }
@@ -1005,7 +1012,7 @@ makeBody(@(-100, -4), @(-.5, 0));
 makeBody(@(.5, -4), @(100, 0));
 
 fun int legal(int r, int c) {
-    return (r >= 0 && r < MINE_H.val() - 1) && (c >= 0 && c < MINE_W.val() - 1);
+    return (r >= 0 && r < MINE_H.val()) && (c >= 0 && c < MINE_W.val());
 }
 
 while (1) {
@@ -1256,7 +1263,7 @@ while (1) {
 
         tile.pos() => vec2 tile_pos;
 
-        if (tile.type == TileType_Spike) {
+        if (tile.type == TileType_Spike && !player.eggs[EggType_Foot]) {
             die();
             continue;
         }
@@ -1279,7 +1286,7 @@ while (1) {
             n_coins++;
             sfx.coin(72, 76);
             tile.empty();
-            addEventText("Your pockets feel a little bit heavier.");
+            addEventText("Your pockets feel heavier.");
         }
     }
 
