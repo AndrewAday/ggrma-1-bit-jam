@@ -1,6 +1,6 @@
 public class Sound {
     // me.dir() + "sounds/explosion.wav" => string FILEPATH_EXPLOSION;
-    me.dir() + "sounds/coin.wav" => string FILEPATH_COIN;
+    me.dir() + "sounds/sfx/coin.wav" => string FILEPATH_COIN;
     // me.dir() + "sounds/select.wav" => string FILEPATH_SELECT;
 
     // Background Music
@@ -22,6 +22,30 @@ public class Sound {
     // Egg
     me.dir() + "sounds/egg.wav" => string FILEPATH_EGG;
 
+    // Bawk (fall sounds)
+    me.dir() + "sounds/sfx/bawk0.wav" => string FILEPATH_BAWK0;
+    me.dir() + "sounds/sfx/bawk1.wav" => string FILEPATH_BAWK1;
+    me.dir() + "sounds/sfx/bawk2.wav" => string FILEPATH_BAWK2;
+    me.dir() + "sounds/sfx/bawk3.wav" => string FILEPATH_BAWK3;
+    me.dir() + "sounds/sfx/bawk4.wav" => string FILEPATH_BAWK4;
+
+    // insert coin
+    me.dir() + "sounds/sfx/insertCoin.wav" => string FILEPATH_INSERT_COIN;
+
+    me.dir() + "sounds/sfx/death.wav" => string FILEPATH_DEATH;
+
+    me.dir() + "sounds/sfx/egg.wav" => string FILEPATH_EGG_UPGRADE;
+
+    me.dir() + "sounds/sfx/spoiledEgg.wav" => string FILEPATH_SPOILED_EGG_UPGRADE;
+
+    me.dir() + "sounds/sfx/powerup.wav" => string FILEPATH_POWERUP;
+
+    me.dir() + "sounds/sfx/message.wav" => string FILEPATH_MESSAGE;
+
+    me.dir() + "sounds/sfx/tool.wav" => string FILEPATH_TOOL_CHANGE;
+
+    me.dir() + "sounds/sfx/wrongtool.wav" => string FILEPATH_WRONG_TOOL;
+
     float _bpm;
     time _beatStartTime;
 
@@ -37,7 +61,22 @@ public class Sound {
         new SndBuf(FILEPATH_STONE1),
         new SndBuf(FILEPATH_STONE2),
         new SndBuf(FILEPATH_STONE3),
-        new SndBuf(FILEPATH_EGG)
+        new SndBuf(FILEPATH_EGG),
+
+        // kunwoo kim collection
+        new SndBuf(FILEPATH_BAWK0),
+        new SndBuf(FILEPATH_BAWK1),
+        new SndBuf(FILEPATH_BAWK2),
+        new SndBuf(FILEPATH_BAWK3),
+        new SndBuf(FILEPATH_BAWK4),
+        new SndBuf(FILEPATH_INSERT_COIN),
+        new SndBuf(FILEPATH_DEATH),
+        new SndBuf(FILEPATH_EGG_UPGRADE),
+        new SndBuf(FILEPATH_SPOILED_EGG_UPGRADE),
+        new SndBuf(FILEPATH_POWERUP),
+        new SndBuf(FILEPATH_MESSAGE),
+        new SndBuf(FILEPATH_TOOL_CHANGE),
+        new SndBuf(FILEPATH_WRONG_TOOL)
     ] @=> SndBuf bufs[];
 
     PoleZero pz => dac;
@@ -105,12 +144,12 @@ public class Sound {
         }
 
         bufs[ix] => Gain g => pz;
-        gain => g.gain;
+        gain + 5 => g.gain;
         rate => bufs[ix].rate;
         loop => bufs[ix].loop;
         0 => bufs[ix].pos;
 
-        <<< "Playing sound:", ix >>>;
+        // <<< "Playing sound:", ix >>>;
         
         if (duration != 0::ms) {
             duration => now;
@@ -138,4 +177,18 @@ public class Sound {
     9 => int SOUND_STONE2;
     10 => int SOUND_STONE3;
     11 => int SOUND_EGG;
+
+    12 => int SOUND_BAWK0;
+    13 => int SOUND_BAWK1;
+    14 => int SOUND_BAWK2;
+    15 => int SOUND_BAWK3;
+    16 => int SOUND_BAWK4;
+    17 => int SOUND_INSERT_COIN;
+    18 => int SOUND_DEATH;
+    19 => int SOUND_EGG_UPGRADE;
+    20 => int SOUND_SPOILED_EGG_UPGRADE;
+    21 => int SOUND_POWERUP;
+    22 => int SOUND_MESSAGE;
+    23 => int SOUND_TOOL_CHANGE;
+    24 => int SOUND_WRONG_TOOL;
 }

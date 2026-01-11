@@ -102,7 +102,7 @@ UI_Float player_target_pos(-2.0); // how far the player should be above camera c
 UI_Float camera_game_start_pos(2);
 
 // player params
-UI_Float2 player_gamestart_pos(@(-2.8, 10));
+UI_Float2 player_gamestart_pos(@(-5, 10));
 UI_Float player_speed(4.0);
 UI_Float player_base_size(.66);
 UI_Float player_size(player_base_size.val());
@@ -426,18 +426,61 @@ Physics p;
 ] @=> int tile_sounds[][];
 
 string eventbox_text[0];
-
 fun void addEventText(string s) {
-    if (room != Room_Start) eventbox_text << s;
+    if (room != Room_Start) {
+        eventbox_text << s;
+
+        spork ~ snd.play(
+            snd.SOUND_MESSAGE,
+            1.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
+    }
 }
+
+int depth100;
+int depth500;
+int depth1000;
+
+[
+    200,
+    500.,
+    1000.,
+] @=> float end_depths[];
+0 => int end_depth_ix;
 
 [
     "You wonder whether you or the egg came first.",
     "The depths call to you.",
     "You wonder why you are here.",
     "You wonder if Betsy ever did manage to cross the road.",
-    "You wonder if you've been here before."
+    "You wonder if you've been here before.",
+    "You swear you've seen this place.",
+    "The abyss calms you.",
+    "You're tired. But you know you must dig.",
+    "Your digging fills you with determination.",
+    "The price of freedom sure is steep.",
+
 ] @=> string random_event_text[];
+[
+"The abyss has its eyes on me.",
+"You feel like you're not alone.",
+"You feel like you've crossed a million raods by now.",
+"You wonder if a creeper is going to show up soon.",
+"You wonder who would set up spikes in a cave.",
+"You feel like you're almost there.",
+"The strength of those before you empowers you.",
+"Your eggs are your power!",
+] @=> string deep_random_event_text[];
+
+[
+"That was a big fall. You peed a little.",
+"If only you had stronger wings to break your fall.",
+"You swear chickens normally aren't this heavy.",
+"You landed like a bowling ball.",
+] @=> string pee_text[];
 
 /*
 Egg mechanic: need X coins/keys to open lock. After openning, need to break the egg to get the power
@@ -675,6 +718,7 @@ fun vec2 gridpos(vec2 p) {
 
 // player params
 Player player; // TODO physics body
+null @=> Player @ other;
 5 => int n_coins;
 int shake_count;
 
@@ -691,6 +735,9 @@ int room;
 
 int ended;
 int playerEgg;
+int newChicken;
+int newChickenFallen;
+int newChickenPlayerCollision;
 
 float gametime;
 int difficulty;
@@ -768,6 +815,100 @@ fun Tile[] allConnected(int row, int col) {
     return tiles;
 }
 
+fun void wait(dur duration) {
+    now => time start;
+    while(now - start < duration) {
+        GG.nextFrame() => now;
+    }
+}
+fun static float lerp(float a, float b, float t) {
+    return a + (b - a) * t;
+}
+int lastEggFrame;
+fun void endingAnimation() {
+    // turn chicken into egg
+    1::second => dur duration;
+    now => time start;
+    while (now - start < duration) {
+        GG.nextFrame() => now;
+        player.pos() + @(0, 0.05) => player.pos;
+    }
+    true => playerEgg;
+    eventbox_text.clear();
+
+    addEventText("Wait, what's going on?");
+
+    // spawn chicken to mine you
+    wait(5::second);
+
+    true => newChicken;
+    Player p @=> other;
+    other.pos(g.n2w(-0.25, 1.2));
+
+    while (!newChickenFallen) {
+        GG.nextFrame() => now;
+    }
+
+    bgm_open.play();
+    snd.syncBeat(now);
+    camera_shake_spring.pull(8 * .05);
+    spork ~ snd.play(
+        Math.random2(snd.SOUND_BAWK0, snd.SOUND_BAWK4),
+        4.0, // gain
+        1.0, // rate
+        0, // loop
+        4 // gridDivision
+    );
+
+    wait(2::second);
+
+    // move towards player egg
+    while (other.pos().x < player.pos().x && !newChickenPlayerCollision) {
+        GG.nextFrame() => now;
+        GG.dt() => float dt;
+        dt +=> other.animation_time_secs;
+        @(lerp(other.pos().x, player.pos().x, 0.01), other.pos().y) => other.pos;
+    }
+
+    // open player egg
+
+    for (int i; i<31; i++) {
+        wait((0.1 + 1.5 / (i + 1))::second);
+        spork ~ snd.play(
+            tile_sounds[TileType_Egg][Math.random2(0, tile_sounds[TileType_Egg].size() - 1)], // path
+            1.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
+        // attack anim
+        other.pos() => vec2 smear_pos;
+        float smear_rot;
+        .5*player_base_size.val() +=> smear_pos.x;
+        g.explode(smear_pos, .3, .3::second, Color.WHITE, smear_rot + Math.pi, Math.pi, ExplodeEffect.Shape_Squares);
+        
+        if (i % 10 == 0) {
+            (lastEggFrame + 1) % 5 => lastEggFrame;
+        }
+    }
+
+    player.pos(other.pos());
+    other.facing => player.facing;
+    false => playerEgg;
+    b2.destroyBody(other.b2_body_id);
+    null @=> other;
+    false => ended;
+    Room_Play => room;
+    end_depth_ix++;
+
+    // shift new tiles in
+    repeat(5) shift();
+
+    bgm_open.stop();
+    bgm_play.play();
+    snd.syncBeat(now);
+}
+
 fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile was originally empty
     if (tile.hp <= 0) {
         T.err("mining an empty tile");
@@ -783,13 +924,31 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
             // u a broke boi
             // TODO sound effect
             // TODO flavor text: "u r a poor chicken"
-            addEventText("You don't have enough coins brokie.");
+            if (maybe) addEventText("You don't have enough coins brokie.");
+            else addEventText("If only Colonel S. gave you more allowance.");
+        
+            spork ~ snd.play(
+                snd.SOUND_WRONG_TOOL,
+                1.0, // gain
+                1.0, // rate
+                0, // loop
+                4 // gridDivision
+            );
             return;
         }
 
         n_coins--;
         tile.cost_to_unlock--;
-        // TODO sound effect
+
+        spork ~ snd.play(
+            snd.SOUND_INSERT_COIN, // path
+            1.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
+
+
 
         // TODO unlock juice
         levelUpEffect("-", coin_single_sprite, player.pos() + .5*g.UP, .3, .6);
@@ -822,7 +981,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
     g.explode(smear_pos, .3, .3::second, Color.WHITE, smear_rot + Math.pi, Math.pi, ExplodeEffect.Shape_Squares);
 
     // only do dmg if tool matches
-    <<< player.tool, tile.type >>>;
+    // <<< player.tool, tile.type >>>;
     if (player.tool == tile.type || tile.type == TileType_Egg) {
         if (tile.type == TileType_Egg) {
             T.assert(tile.cost_to_unlock == 0, "egg should only be damaged if unlocked");
@@ -860,7 +1019,14 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                     player.expToLevel(tile.type) -=> player.tool_exp[tile.type];
                     ++player.tool_level[tile.type];
 
-                    sfx.powerup();
+
+                    spork ~ snd.play(
+                        snd.SOUND_POWERUP,
+                        1.0, // gain
+                        1.0, // rate
+                        0, // loop
+                        4 // gridDivision
+                    );
                     levelUpEffect("+", tile_tools[player.tool], player.pos() + .5*g.UP, .3, .6);
                 }
 
@@ -869,7 +1035,8 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                 // acquire egg
                 if (tile.type == TileType_Egg) {
                     if (ended) {
-                        true => playerEgg;
+                        tile.empty();
+                        spork ~ endingAnimation();
                         return;
                     }
 
@@ -883,27 +1050,62 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                         if (Math.random2(0, 1)) {
                             "You knew something smelled off." => spoiled_text;
                         }
+                        if (maybe) "You want your money back." => spoiled_text;
                         addEventText(spoiled_text);
+
+                        spork ~ snd.play(
+                            snd.SOUND_SPOILED_EGG_UPGRADE,
+                            1.0, // gain
+                            1.0, // rate
+                            0, // loop
+                            4 // gridDivision
+                        );
+
                     } else {
                         "You feel ashamed... But stronger." => string non_spoiled_text;
                         if (Math.random2(0, 1)) {
                             "Why did you do that????" => non_spoiled_text;
                         }
                         addEventText(non_spoiled_text);
+
+                        spork ~ snd.play(
+                            snd.SOUND_EGG_UPGRADE,
+                            1.0, // gain
+                            1.0, // rate
+                            0, // loop
+                            4 // gridDivision
+                        );
                     }
 
                     if (tile.egg_type == EggType_Juggernaut) {
                         .9 => player_size.val;
                         player.remakeCollider();
+                        addEventText("You obtained jeggernaut! You feel stronger, bigger, and heavier.");
+                    }
+
+                    if (tile.egg_type == EggType_Connection) {
+                        addEventText("You obtained connegg! You feel like you can reach farther.");
+                    }
+
+                    if (tile.egg_type == EggType_Foot) {
+                        addEventText("You obtained chickenfoot! Your feet feel stronger.");
                     }
                 }
                 tile.empty();
             } else {
-                g.hitFlash((1/62.0)::second, 1.0, tile.pos(), Color.WHITE);
+                if (tile.type != TileType_Egg) g.hitFlash((1/62.0)::second, 1.0, tile.pos(), Color.WHITE);
                 tile.rotation_spring.pull(tile_pull_force.val());
                 tile.translation_spring.pull(tile_pull_force.val());
             }
         }
+    } else {
+        spork ~ snd.play(
+            snd.SOUND_WRONG_TOOL,
+            8.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
     }
 }
 
@@ -985,6 +1187,7 @@ fun void shiftEggMiddle() {
         if (col == MINE_W.val() / 2) {
             tilepos(tilemap.size() - 1, col) => vec2 pos;
             tile.become(pos, TileType_Egg, 0);
+            0 => tile.cost_to_unlock;
         } else {
             tile.empty();
         }
@@ -1100,6 +1303,9 @@ fun void init() {
         // true => player.eggs[EggType_Foot];
 
         0 => n_coins;
+
+        0 => shake_count;
+        0 => death_shake_count;
     }
 
     eventbox_text.clear();
@@ -1160,6 +1366,12 @@ while (1) {
 
 
     if (GG.camera().posY() > - 10) {
+
+        { // credits
+        }
+
+
+
         if (GWindow.keyDown(GWindow.KEY_TAB)) {
             tab_rot_spring.pull(.1);
             tab_sca_spring.pull(.1);
@@ -1312,10 +1524,15 @@ while (1) {
         g.popTextMaxWidth();
         g.popTextControlPoint();
 
-        if (Math.randomf() < .001 && random_event_text.size() > 0) {
+        if (depth < 100 && Math.randomf() < .0003 && random_event_text.size() > 0) {
             Math.random2(0, random_event_text.size()-1) => int randIx;
             addEventText(random_event_text[randIx]);
             random_event_text.erase(randIx);
+        }
+        if (depth > 100 && Math.randomf() < .0003 && deep_random_event_text.size() > 0) {
+            Math.random2(0, deep_random_event_text.size()-1) => int randIx;
+            addEventText(deep_random_event_text[randIx]);
+            deep_random_event_text.erase(randIx);
         }
     }
 
@@ -1328,17 +1545,17 @@ while (1) {
         // g.boxFilled(@(MINE_W.val() * .5 + border_w * .5, center_y), 
         // border_w, 1.1 * (g.screen_max.y - g.screen_min.y), Color.WHITE);
 
-
-        g.pushTextControlPoint(1, .5);
-
-        for (int egg_type; egg_type < EggType_Count; ++egg_type) {
-            if (player.eggs[egg_type]) {
-                g.text(egg_names[egg_type], pos - @(.3, .05), .4);
-                g.sprite( egg_sprites[egg_type], pos, .4, 0 );
-                .5 -=> pos.y;
+        if (!player.dead) {
+            g.pushTextControlPoint(1, .5);
+            for (int egg_type; egg_type < EggType_Count; ++egg_type) {
+                if (player.eggs[egg_type]) {
+                    g.text(egg_names[egg_type], pos - @(.3, .05), .4);
+                    g.sprite( egg_sprites[egg_type], pos, .4, 0 );
+                    .5 -=> pos.y;
+                }
             }
+            g.popTextControlPoint();
         }
-        g.popTextControlPoint();
 
         // depth markers
         20 => int depth_ival;
@@ -1373,6 +1590,16 @@ while (1) {
             "non-player collision"
         ); 
 
+        if (other != null && (touch_body_id_a == other.b2_body_id || touch_body_id_b == other.b2_body_id)) {
+            true => newChickenFallen;
+        }
+        if (other != null && 
+            ((touch_body_id_a == other.b2_body_id && touch_body_id_b == player.b2_body_id) || 
+            ((touch_body_id_a == player.b2_body_id && touch_body_id_b == other.b2_body_id))) 
+        ) {
+            true => newChickenPlayerCollision;
+        }
+
         touch_body_id_b => int contact_body_id;
         if (touch_body_id_b == player.b2_body_id) touch_body_id_a => contact_body_id;
 
@@ -1402,7 +1629,15 @@ while (1) {
             // TODO: b2 functions should print ck error if passed an invalid body id
             g.score("+" + 1, tile.pos(), .5::second, .5,  0.6);
             n_coins++;
-            sfx.coin(72, 76);
+
+            spork ~ snd.play(
+                snd.SOUND_COIN,
+                1.0, // gain
+                1.0, // rate
+                0, // loop
+                4 // gridDivision
+            );
+
             tile.empty();
             addEventText("Your pockets feel heavier.");
         }
@@ -1416,6 +1651,14 @@ while (1) {
             else ++player.tool;
 
             player.tool_scale_spring.pull(.3);
+
+            spork ~ snd.play(
+                snd.SOUND_TOOL_CHANGE,
+                1.0, // gain
+                1.0, // rate
+                0, // loop
+                4 // gridDivision
+            );
         }
 
         if (GWindow.key(GWindow.KEY_RIGHT) || GWindow.key(GWindow.KEY_LEFT)) dt +=> player.animation_time_secs;
@@ -1455,11 +1698,11 @@ while (1) {
             M.fract(player.pos().y) => float y;
             if (y < 0) 1 +=> y;
             (y < (.5 * player_size.val())) => int player_on_ground;
-            <<< "here", gridpos, tile_below.hp, player_on_ground, y, player_size.val() >>>;
+            // <<< "here", gridpos, tile_below.hp, player_on_ground, y, player_size.val() >>>;
             if (
                 (tile_below.hp > 0) && player_on_ground
             ) {
-                <<< "mining" >>>;
+                // <<< "mining" >>>;
                 mine(tile_below, row+1, col, Dir_Down);
             }
         }
@@ -1474,7 +1717,7 @@ while (1) {
 
         if (GWindow.keyDown(GWindow.Key_Left) && legal(row, col-1)) {
             (player.pos().x - player_tile_pos.x) < (-.5  + .5 * player_size.val() + .01) => int touching_side;
-            <<< row, col >>>;
+            // <<< row, col >>>;
             tilemap[row][col-1] @=> Tile tile_left;
             if ((tile_left.hp > 0) && touching_side) {
                 mine(tile_left, row, col-1, Dir_Left);
@@ -1486,7 +1729,18 @@ while (1) {
     player.vel().y - player.prev_vel.y => float delta;
     if (delta > 8) {
         camera_shake_spring.pull(delta * .05);
+        addEventText(pee_text[Math.random2(0, pee_text.size()-1)]);
+
+        spork ~ snd.play(
+            Math.random2(snd.SOUND_BAWK0, snd.SOUND_BAWK4),
+            4.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
+
         shake_count++;
+
         if (shake_count == 1 || shake_count == death_shake_count + 1) {
             bgm_open.play();
         }
@@ -1495,15 +1749,30 @@ while (1) {
             bgm_play.play();
             snd.syncBeat(now);
         }
-        addEventText("That was a big fall. You peed a little.");
+        if (ended) {
+            bgm_play.stop();
+            bgm_open.stop();
+            snd.syncBeat(now);
+        }
+    }
+
+    if (depth >= 100 && !depth100) {
+        true => depth100;
+        addEventText("100m travelled. It's getting darker.");
+    }
+    if (depth >= 500 && !depth500) {
+        true => depth500;
+        addEventText("500m travelled. You're feeling colder.");
+    }
+    if (depth >= 1000 && !depth1000) {
+        true => depth1000;
+        addEventText("1000m travelled.");
     }
     
-    if (depth > 500 && room != Room_End) {
+    if (depth > end_depths[end_depth_ix] && room != Room_End) {
         // init room end
         Room_End => room;
     }
-
-    if (GWindow.keyDown(GWindow.Key_Space)) die();
 
     if (room == Room_Play) {
         if (!player.dead) {
@@ -1532,6 +1801,15 @@ while (1) {
         else {
             if (gametime - death_time > 1.0 && !player_exploded) {
                 true => player_exploded;
+
+                spork ~ snd.play(
+                    snd.SOUND_DEATH,
+                    32.0, // gain
+                    1.0, // rate
+                    0, // loop
+                    4 // gridDivision
+                );
+
                 g.explode(player.pos(), 5, 3::second, Color.WHITE, 0, Math.two_pi, ExplodeEffect.Shape_Squares);
             }
 
@@ -1602,6 +1880,17 @@ while (1) {
                 shiftAllType(TileType_Dirt);
             }
         }
+
+        // star in da cave
+        if (ended) {
+            for (auto star : stars) {
+                if (Math.randomf() < .005) {
+                    Math.random2f(g.screen_min.x, g.screen_max.x) => float x;
+                    Math.random2f(g.screen_min.y + 5, g.screen_max.y) => float y;
+                    starTwinkle(@(x, y));
+                }
+            }
+        }
     }
 
 
@@ -1626,21 +1915,30 @@ while (1) {
             player.tool_scale_spring.x + 1 => float tool_sca;
             g.sprite( tile_tools[player.tool], player.pos() + @(0,.0), tool_sca * .5 * @(-player.facing, 1), 0, Color.WHITE);
         } else {
-            gridpos(player.pos()) => vec2 gridpos;
-            gridpos.x $ int => int row;
-            gridpos.y $ int => int col;
-            tilemap[row][col+1] @=> Tile tile_right;
-            tilemap[row][col-1] @=> Tile tile_left;
-            tilemap[row+1][col] @=> Tile tile_down;
+            // gridpos.x $ int => int row;
+            // gridpos.y $ int => int col;
+            // tilemap[row][col+1] @=> Tile tile_right;
+            // tilemap[row][col-1] @=> Tile tile_left;
+            // tilemap[row+1][col] @=> Tile tile_down;
 
-            Tile @ tile;
-            if (tile_left != null && tile_left.type == TileType_Egg) tile_left @=> tile;
-            if (tile_right != null && tile_right.type == TileType_Egg) tile_right @=> tile;
-            if (tile_down != null && tile_down.type == TileType_Egg) tile_down @=> tile;
+            // Tile @ tile;
+            // if (tile_left != null && tile_left.type == TileType_Egg) tile_left @=> tile;
+            // if (tile_right != null && tile_right.type == TileType_Egg) tile_right @=> tile;
+            // if (tile_down != null && tile_down.type == TileType_Egg) tile_down @=> tile;
             g.sprite(
-                egg_sprite, 5, 0,
-                tile.pos(), (15.0/16) * @(1,1), 0, Color.WHITE
+                egg_sprite, 5, lastEggFrame,
+                player.pos(), (15.0/16) * @(1,1), 0, Color.WHITE
             );
+            
+            if (newChicken) {
+                (other.animation_time_secs / .05) $ int % 4 => int curr_frame;
+                g.sprite(
+                    chicken_sprite, 4, curr_frame,
+                    other.pos(), player_base_size.val() * @(other.facing, 1), 0, Color.WHITE
+                );
+                other.tool_scale_spring.x + 1 => float tool_sca;
+                g.sprite( tile_tools[other.tool], other.pos() + @(0,.0), tool_sca * .5 * @(-other.facing, 1), 0, Color.WHITE);
+            }
         }
     } g.popLayer();
 
@@ -1765,6 +2063,7 @@ while (1) {
     if (death_sequence) { // death
         false => death_sequence;
         bgm_play.stop();
+        bgm_open.stop();
         true => player.dead;
         b2Body.disable(player.b2_body_id);
 

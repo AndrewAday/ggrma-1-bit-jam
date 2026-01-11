@@ -8,7 +8,7 @@ public class BGM_Playing
     fun void play()
     {
         buffy.pos(0);
-        buffy.gain(0.9);
+        buffy.gain(0.75);
         buffy.rate(1);
     }
     
@@ -30,7 +30,7 @@ public class BGM_Opening
     fun void play()
     {
         buffy.pos(0);
-        buffy.gain(1.0);
+        buffy.gain(0.9);
         buffy.rate(1);
     }
 
