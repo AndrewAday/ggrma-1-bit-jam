@@ -1,7 +1,7 @@
 public class Sound {
-    // me.dir() + "sounds/explosion.wav" => string FILEPATH_EXPLOSION;
+    me.dir() + "sounds/explosion.wav" => string FILEPATH_EXPLOSION;
     me.dir() + "sounds/coin.wav" => string FILEPATH_COIN;
-    // me.dir() + "sounds/select.wav" => string FILEPATH_SELECT;
+    me.dir() + "sounds/select.wav" => string FILEPATH_SELECT;
 
     // Background Music
     me.dir() + "sounds/ChickenBPM.wav" => string FILEPATH_BGM;
@@ -26,9 +26,9 @@ public class Sound {
     time _beatStartTime;
 
     [
-        new SndBuf, // new SndBuf(FILEPATH_EXPLOSION),
+        new SndBuf(FILEPATH_EXPLOSION),
         new SndBuf(FILEPATH_COIN),
-        new SndBuf, // new SndBuf(FILEPATH_SELECT),
+        new SndBuf(FILEPATH_SELECT),
         new SndBuf(FILEPATH_BGM),
         new SndBuf(FILEPATH_SOIL1),
         new SndBuf(FILEPATH_SOIL2),

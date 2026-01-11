@@ -97,12 +97,6 @@ public class M {
         return x - (x $ int);
     }
 
-    // return next highest multiple of n to x
-    // if x is a multiple of n, returns (n+1)*x
-    fun static int nextMult(int x, int n) {
-        return ((x / n) + 1) * n;
-    }
-
     // =====================================================================
     // Tweens (most take a function that outputs from 0-1 over an input 0-1
     // =====================================================================
