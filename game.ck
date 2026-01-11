@@ -99,6 +99,7 @@ UI_Float camera_base_speed(.4); // TWEAK
 UI_Float camera_speed(camera_base_speed.val()); // TWEAK
 UI_Float screen_zeno(.05); // TODO TWEAK
 UI_Float player_target_pos(-2.0); // how far the player should be above camera center. TWEAK
+UI_Float camera_game_start_pos(2);
 
 // player params
 UI_Float2 player_gamestart_pos(@(-2.8, 10));
@@ -150,6 +151,8 @@ Texture.load(me.dir() + "./assets/wood1.png", tex_load_desc) @=> Texture wood_sp
 Texture.load(me.dir() + "./assets/wood2.png", tex_load_desc) @=> Texture wood_sprite_2;
 Texture.load(me.dir() + "./assets/wood3.png", tex_load_desc) @=> Texture wood_sprite_3;
 Texture.load(me.dir() + "./assets/wood4.png", tex_load_desc) @=> Texture wood_sprite_4;
+
+Texture.load(me.dir() + "./assets/obsidian.png", tex_load_desc) @=> Texture obsidian_sprite;
 
 Texture.load(me.dir() + "./assets/axe.png", tex_load_desc) @=> Texture axe_sprite; // 50::ms per frame
 Texture.load(me.dir() + "./assets/pickaxe.png", tex_load_desc) @=> Texture pickaxe_sprite; // 50::ms per frame
@@ -425,14 +428,15 @@ Physics p;
 string eventbox_text[0];
 
 fun void addEventText(string s) {
-    if (room == Room_Play) eventbox_text << s;
+    if (room != Room_Start) eventbox_text << s;
 }
 
 [
     "You wonder whether you or the egg came first.",
     "The depths call to you.",
     "You wonder why you are here.",
-    "You wonder if Betsy ever did manage to cross the road."
+    "You wonder if Betsy ever did manage to cross the road.",
+    "You wonder if you've been here before."
 ] @=> string random_event_text[];
 
 /*
@@ -462,6 +466,7 @@ int firstEggSpawned;
 
 class Player {
     int b2_body_id;
+    int dead;
 
     TileType_Dirt => int tool;
     int tool_level[TileType_Count];
@@ -490,7 +495,7 @@ class Player {
     fun void remakeCollider() {
         pos() => vec2 old_pos;
         b2.destroyBody(b2_body_id);
-        p.createBody(old_pos, b2BodyType.dynamicBody, EntityType_Player, player_size.val(), false, null) => b2_body_id;
+        p.createBody(old_pos, b2BodyType.dynamicBody, EntityType_Player, player_size.val() * 16.0/18, false, null) => b2_body_id;
     }
 
     fun int expToLevel(int tool_type) {
@@ -540,10 +545,18 @@ class Tile {
         }
     }
 
-    // curr only used to init 3 tutorial blocks
     fun void become(vec2 pos, int type, int hp) {
+        if (type == TileType_Egg) {
+            egg(pos, Math.random2(0, EggType_Count - 1));
+            return;
+        }
+
         type => this.type;
         hp => max_hp => this.hp;
+        if (type == TileType_None) {
+            empty();
+            return;
+        }
 
         _destroyBody();
         p.createBody(pos, b2BodyType.staticBody, EntityType_Tile, 1.0, false, null) => b2_body_id;
@@ -599,15 +612,15 @@ class Tile {
     
     fun void randomize(vec2 pos) {
         // first: have a fixed n% chance of spawning a coin
-        if (rows_to_next_coin == 0 && Math.randomf() < .01) {
-            Math.random2(5, 25) => rows_to_next_coin;
+        if (rows_to_next_coin == 0) {
+            Math.random2(4, 15) => rows_to_next_coin;
             coin(pos);
             return;
         }
 
         // only spawn egg if we have enough coins
-        if (rows_to_next_egg <= 0 && (n_coins > 5) && Math.randomf() < egg_probability.val()) {
-            30 => rows_to_next_egg;
+        if (rows_to_next_egg <= 0 && (n_coins > 5)) {
+            Math.random2(25, 40) => rows_to_next_egg;
             if (!firstEggSpawned) {
                 addEventText("You feel like you should break the egg.");
                 true => firstEggSpawned;
@@ -639,6 +652,8 @@ int base_row; // what #row is tilemap[0]? (increments with every shift)
 1.0 => float spawn_dist; // camera distance to spawn next row of blocks
 int rows_to_next_coin;
 int rows_to_next_egg;
+vec3 history[0];
+
 
 fun vec2 tilepos(int r, int c) {
     base_row +=> r;
@@ -671,8 +686,11 @@ float start_depth;
 
 0 => int Room_Start;
 1 => int Room_Play;
-2 => int Room_Death; // death sequence
+2 => int Room_End;
 int room;
+
+int ended;
+int playerEgg;
 
 float gametime;
 int difficulty;
@@ -753,6 +771,10 @@ fun Tile[] allConnected(int row, int col) {
 fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile was originally empty
     if (tile.hp <= 0) {
         T.err("mining an empty tile");
+        return;
+    }
+
+    if (ended && tile.type != TileType_Egg) {
         return;
     }
 
@@ -846,6 +868,11 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
 
                 // acquire egg
                 if (tile.type == TileType_Egg) {
+                    if (ended) {
+                        true => playerEgg;
+                        return;
+                    }
+
                     true => player.eggs[tile.egg_type];
 
                     // TODO add egg acquire juice
@@ -886,6 +913,13 @@ fun void shift() {
     for (int row; row < MINE_H.val() - 1; row++) {
         tilemap[row+1] @=> tilemap[row];
     }
+
+    // copy history
+    for (int col; col < MINE_W.val(); col++) {
+        tilepos(0, col) => vec2 pos;
+        history << @(pos.x, pos.y, bottom_row[col].type);
+    }
+
     // shift bottom to top
     bottom_row @=> tilemap[-1];
     base_row++;
@@ -896,84 +930,161 @@ fun void shift() {
     // randomize new row
     for (int col; col < MINE_W.val(); col++) {
         bottom_row[col] @=> Tile tile;
+        
         tilepos(tilemap.size() - 1, col) => vec2 pos;
 
         (tilemap[tilemap.size() - 2][col].hp == 0) => int tile_above_is_empty;
+        (tilemap[tilemap.size() - 2][col].type == TileType_Spike) => int tile_above_is_spike;
+        (tilemap[tilemap.size() - 2][col].type == TileType_Egg) => int tile_above_is_egg;
         // 10% chance to spawn a spike when tile above is empty
         if (tile_above_is_empty && Math.randomf() < .1) {
             tile.spike(pos);
             continue;
         }
+
+        // 100% chance to spawn obsidian below spike and egg
+        if (tile_above_is_spike || tile_above_is_egg) {
+            tile.become(pos, TileType_Obsidian, Math.INT_MAX);
+            continue;
+        }
+
         tile.randomize(tilepos(tilemap.size() - 1, col));
     }
 }
 
-fun void die() {
-    g.explode(player.pos(), 5, 3::second, Color.WHITE, 0, Math.two_pi, ExplodeEffect.Shape_Squares);
-    Room_Start => room;
-    Math.max(score, highscore) => highscore;
-    b2Body.disable(player.b2_body_id);
+fun void shiftEmpty() {
+    // shift everything up (can easily optimize)
+    tilemap[0] @=> Tile bottom_row[];
+    for (int row; row < MINE_H.val() - 1; row++) {
+        tilemap[row+1] @=> tilemap[row];
+    }
+    // shift bottom to top
+    bottom_row @=> tilemap[-1];
+    base_row++;
 
-    // GG.camera().posY(0);
+    // empty new row
+    for (int col; col < MINE_W.val(); col++) {
+        bottom_row[col] @=> Tile tile;
+        tile.empty();
+    }
+}
+
+fun void shiftEggMiddle() {
+    // shift everything up (can easily optimize)
+    tilemap[0] @=> Tile bottom_row[];
+    for (int row; row < MINE_H.val() - 1; row++) {
+        tilemap[row+1] @=> tilemap[row];
+    }
+    // shift bottom to top
+    bottom_row @=> tilemap[-1];
+    base_row++;
+
+    // set new row
+    for (int col; col < MINE_W.val(); col++) {
+        bottom_row[col] @=> Tile tile;
+        if (col == MINE_W.val() / 2) {
+            tilepos(tilemap.size() - 1, col) => vec2 pos;
+            tile.become(pos, TileType_Egg, 0);
+        } else {
+            tile.empty();
+        }
+    }
+}
+
+fun void shiftAllType(int type) {
+    // shift everything up (can easily optimize)
+    tilemap[0] @=> Tile bottom_row[];
+    for (int row; row < MINE_H.val() - 1; row++) {
+        tilemap[row+1] @=> tilemap[row];
+    }
+    // shift bottom to top
+    bottom_row @=> tilemap[-1];
+    base_row++;
+
+    // set new row
+    for (int col; col < MINE_W.val(); col++) {
+        bottom_row[col] @=> Tile tile;
+        tilepos(tilemap.size() - 1, col) => vec2 pos;
+        tile.become(pos, type, 1);
+    }
+}
+
+int death_sequence;
+int death_shake_count;
+float death_time;
+int player_exploded;
+
+fun void die() {
+    true => death_sequence;
+    gametime => death_time;
+    shake_count => death_shake_count;
 }
 
 vec4 grass[0];
 vec4 stars[0];
-fun void init(int room) {
+
+int init_count;
+fun void init() {
     // randomize grass
-    grass.clear();
-    g.screen_min.x => float x;
-    while (x < g.screen_max.x) {
-        if (!(x > -.6 && x < .6)) {
-            grass << @(
-                x,
-                .1,
-                maybe ? -1 : 1,
-                Math.random2(0, 1)
-            );
+    if (init_count == 0) {
+        grass.clear();
+        g.screen_min.x => float x;
+        while (x < g.screen_max.x) {
+            if (!(x > -.6 && x < .6)) {
+                grass << @(
+                    x,
+                    .1,
+                    maybe ? -1 : 1,
+                    Math.random2(0, 1)
+                );
+            }
+            Math.random2f(0.2,3.2) +=> x;
         }
-        Math.random2f(0.2,3.2) +=> x;
-    }
-    
-    stars.size(Math.random2(10, 20));
-    for (int i; i < stars.size(); ++i) {
-        Math.random2(0, star_sprites.size() - 1) => int which_star;
-        Math.random2f(g.screen_min.x, g.screen_max.x) => float x;
-        Math.random2f(1, 7) => float y;
-        Math.random2f(0, 2) => float offset;
-        @(
-            x, y, which_star, offset
-        ) => stars[i];
+        
+        stars.size(Math.random2(10, 20));
+        for (int i; i < stars.size(); ++i) {
+            Math.random2(0, star_sprites.size() - 1) => int which_star;
+            Math.random2f(g.screen_min.x, g.screen_max.x) => float x;
+            Math.random2f(1, 7) => float y;
+            Math.random2f(0, 2) => float offset;
+            @(
+                x, y, which_star, offset
+            ) => stars[i];
+        }
     }
 
-    if (true || room == Room_Play) {
+    history.clear();
+    if (true) {
         0 => gametime;
         0 => score;
 
         0 => base_row;
         1.0 => spawn_dist;
+
+        Math.random2(1, 3) => rows_to_next_coin;
+
         // init tiles
         for (int row; row < MINE_H.val(); row++) {
             for (int col; col < MINE_W.val(); col++) {
-                // first few rows empty
-                if (row < 15) tilemap[row][col].empty();
+                    // first few rows empty
+                    if (row < 15) tilemap[row][col].empty();
                 else tilemap[row][col].randomize(tilepos(row, col));
             }
         }
 
         // fill in the first 3 blocks of tutorial
-        tilemap[0][3].become(tilepos(0, 3), TileType_Dirt, 5);
-        tilemap[1][3].become(tilepos(1, 3), TileType_Wood, 5);
-        tilemap[2][3].become(tilepos(2, 3), TileType_Stone, 5);
-
-        Math.random2(5, 18) => rows_to_next_coin;
+        if (init_count == 0) {
+            tilemap[0][3].become(tilepos(0, 3), TileType_Dirt, 5);
+            tilemap[1][3].become(tilepos(1, 3), TileType_Wood, 5);
+            tilemap[2][3].become(tilepos(2, 3), TileType_Stone, 5);
+        }
 
         // init camera
-        GG.camera().posY(2);
-        0 => start_depth; // TODO
-        // -GG.camera().viewSize() * .5 => GG.camera().posY;
+        GG.camera().posY(camera_game_start_pos.val());
+        0 => start_depth; 
 
         // init player
+        false => player.dead;
         player_gamestart_pos.val() => player.pos;
         player_base_size.val() => player_size.val;
         player.remakeCollider();
@@ -982,19 +1093,24 @@ fun void init(int room) {
         0 => player.animation_time_secs;
         for (int i; i < player.tool_level.size(); ++i) 1 => player.tool_level[i];
         player.tool_exp.zero();
+        false => player_exploded;
 
         player.eggs.zero();
         // true => player.eggs[1];
-        true => player.eggs[EggType_Foot];
+        // true => player.eggs[EggType_Foot];
 
         0 => n_coins;
     }
+
+    eventbox_text.clear();
+
+    init_count++;
 }
 
 int draw_all;
 int do_ui;
 
-init(Room_Start);
+init();
 
 fun void makeBody(vec2 bot_left, vec2 top_right) {
     (top_right.x - bot_left.x) => float w;
@@ -1020,11 +1136,17 @@ while (1) {
     GG.dt() => float dt;
     start_depth - GG.camera().posY() => float depth;
 
-    if (room == Room_Play) dt +=> gametime;
+    if (room == Room_Play || room == Room_End) dt +=> gametime;
 
     if (GWindow.keyDown(GWindow.KEY_GRAVEACCENT)) !do_ui => do_ui;
 
+    // difficulty scaling
+    // difficulty incr every N seconds
+    (1 + (gametime / seconds_per_level.val())) $ int => difficulty; 
+
     if (do_ui) { // ui
+        UI.text("difficulty: " + difficulty);
+        UI.text("gametime: " + gametime);
         UI.slider("screen zeno", screen_zeno, 0, 1);
         UI.slider("zeno pos", player_target_pos, -10, 10);
 
@@ -1036,11 +1158,8 @@ while (1) {
         UI.slider("title size", title_sca, 0, 10);
     }
 
-    // difficulty scaling
-    // difficulty incr every N seconds
-    (1 + (gametime / seconds_per_level.val())) $ int => difficulty; 
 
-    if (player.pos().y > - 10) {
+    if (GG.camera().posY() > - 10) {
         if (GWindow.keyDown(GWindow.KEY_TAB)) {
             tab_rot_spring.pull(.1);
             tab_sca_spring.pull(.1);
@@ -1126,7 +1245,7 @@ while (1) {
     }
 
     // score
-    if (room == Room_Play) {
+    if (room != Room_Start && !player.dead) {
         // g.n2w(.9, 1-(.1*aspect)) => vec2 pos;
         // g.pushTextControlPoint(@(1, 1));
         // g.text("HI " + highscore, pos, .5);
@@ -1173,10 +1292,9 @@ while (1) {
         g.sprite( pickaxe_sprite, pos, .3, 0 );
         g.text(" L" + player.tool_level[TileType_Stone], pos + @(.4, 0), .45);
         if (player.tool == TileType_Stone) g.square(pos, 0, active_tool_sz, Color.WHITE);
-    } 
     
-    if (room == Room_Play) { // event box
-        g.n2w(-.95, 1-(1*aspect)) => vec2 pos;
+        // event box
+        g.n2w(-.95, 1-(1*aspect)) => pos;
 
         g.pushLayer(1);
         g.box(pos - @(-1.5, -0.5), 3, 5, Color.WHITE);
@@ -1290,14 +1408,8 @@ while (1) {
         }
     }
 
-    if (GWindow.keyDown(GWindow.Key_1)) !draw_all => draw_all;
-
     // controls
-    { 
-        // if (GWindow.keyDown(GWindow.KEY_UP)) {
-        //     player.vel() + @(0, 1.2) => player.vel;
-        // }
-
+    if (!player.dead) { 
         if (GWindow.keyDown(GWindow.KEY_UP) || GWindow.keyDown(GWindow.KEY_TAB)) {
             // cycle tools
             if (player.tool == TileType_Stone) TileType_Dirt => player.tool;
@@ -1306,19 +1418,12 @@ while (1) {
             player.tool_scale_spring.pull(.3);
         }
 
-        // if (GWindow.keyDown(GWindow.KEY_RIGHT) && player_col < MINE_W.val() - 1) {
-        // if (GWindow.keyDown(GWindow.KEY_DOWN) && player_row < MINE_H.val() - 1) {
-            // if (mine(player_row + 1, player_col)) {
-            //     player_row++;
-            //     // shift();
-            // }
-        // }
-
         if (GWindow.key(GWindow.KEY_RIGHT) || GWindow.key(GWindow.KEY_LEFT)) dt +=> player.animation_time_secs;
         if (GWindow.keyDown(GWindow.KEY_RIGHT)) 1 => player.facing;
         if (GWindow.keyDown(GWindow.KEY_LEFT)) -1 => player.facing;
 
         1.0 => float speed_modifier;
+        if (playerEgg) 0 => speed_modifier;
         if (player.eggs[EggType_Juggernaut]) .5 *=> speed_modifier;
         @(
             speed_modifier * player_speed.val() * (
@@ -1331,7 +1436,7 @@ while (1) {
         if (player.pos().y > -3) {
             Math.clampf(player.pos().x, g.screen_min.x, g.screen_max.x) => player.posX;
         } else {
-            Math.clampf(player.pos().x, -.5 * MINE_W.val(), .5 * MINE_W.val()) => player.posX;
+        Math.clampf(player.pos().x, -.5 * MINE_W.val(), .5 * MINE_W.val()) => player.posX;
         }
 
         // determine grid pos of player
@@ -1375,64 +1480,168 @@ while (1) {
                 mine(tile_left, row, col-1, Dir_Left);
             }
         }
+    }
 
-        // shake on falling a large distance (TODO maybe remove this)
-        player.vel().y - player.prev_vel.y => float delta;
-        if (delta > 8) {
-            camera_shake_spring.pull(delta * .05);
-            shake_count++;
-            if (shake_count == 1) {
-                bgm_open.play();
-            }
-            if (shake_count == 2) {
-                bgm_open.stop();
-                bgm_play.play();
-                snd.syncBeat(now);
-            }
-            addEventText("That was a big fall. You peed a little.");
+    // shake on falling a large distance (TODO maybe remove this)
+    player.vel().y - player.prev_vel.y => float delta;
+    if (delta > 8) {
+        camera_shake_spring.pull(delta * .05);
+        shake_count++;
+        if (shake_count == 1 || shake_count == death_shake_count + 1) {
+            bgm_open.play();
         }
+        if (shake_count == 2 || shake_count == death_shake_count + 2) {
+            bgm_open.stop();
+            bgm_play.play();
+            snd.syncBeat(now);
+        }
+        addEventText("That was a big fall. You peed a little.");
     }
     
+    if (depth > 500 && room != Room_End) {
+        // init room end
+        Room_End => room;
+    }
+
+    if (GWindow.keyDown(GWindow.Key_Space)) die();
+
     if (room == Room_Play) {
-        // update camera
-        dt * camera_speed.val() => float scroll_dist;
+        if (!player.dead) {
+            // update camera
+            Math.min(.7, camera_speed.val() + .02 * difficulty) => float cam_scroll_speed;
+            Math.min(2.0, player_target_pos.val() + .2 * difficulty) => float threshold_pos;
+
+            dt * cam_scroll_speed => float scroll_dist;
+            threshold_pos + GG.camera().posY() - player.pos().y => float distance_from_threshold; 
+            Math.max(0, distance_from_threshold) * screen_zeno.val() +=> scroll_dist;
+            GG.camera().translateY(-scroll_dist);
+
+            // death condition
+            if (gametime > 3 && room == Room_Play && player.pos().y > GG.camera().posY() + 5) {
+                die();
+            }
+
+            // spawn more blocks 
+            scroll_dist -=> spawn_dist;
+            while (spawn_dist < 0) {
+                shift();
+                1.0 +=> spawn_dist;
+            }
+        } 
+        // game end camera
+        else {
+            if (gametime - death_time > 1.0 && !player_exploded) {
+                true => player_exploded;
+                g.explode(player.pos(), 5, 3::second, Color.WHITE, 0, Math.two_pi, ExplodeEffect.Shape_Squares);
+            }
+
+            if (gametime - death_time > 2.0) {
+                camera_game_start_pos.val() - GG.camera().posY() => float distance_from_start; 
+                distance_from_start * screen_zeno.val() * .6 => float scroll_amt;
+                GG.camera().translateY(scroll_amt);
+
+                // reverse!
+                bgm_play.buffy.gain(.9);
+                bgm_play.buffy.rate(-2 * scroll_amt);
+
+                // if close to start, revert to start.
+                if (distance_from_start < .01) {
+                    Room_Start => room;
+                    init();
+                }
+
+                // draw tile history (incomplete, doesn't draw egg)
+                for (auto h : history) {
+                    h $ vec2 => vec2 pos;
+                    h.z $ int => int type;
+
+                    // skip if offscreen
+                    if (
+                        h.y > g.screen_max.y + .5
+                        ||
+                        h.y < g.screen_min.y - .5
+                    ) continue;
+
+
+                    if (type == TileType_Coin) {
+                        (gametime / .1)$int % 6 => int curr_frame; 
+                        g.sprite(
+                            coin_sprite, 6, curr_frame,
+                            pos, .9 * @(1, 1), 0, Color.WHITE
+                        );
+                    }
+                    else if (type == TileType_Spike) {
+                        (gametime / .075) $ int % 12 => int curr_frame; 
+                        g.sprite(
+                            spike_sprite, 12, curr_frame,
+                            pos, @(1,1), 0, Color.WHITE
+                        );
+                    }
+                    else if (type == TileType_Obsidian) {
+                        g.sprite( obsidian_sprite, pos, (15.0/16), 0);
+                    }
+                    else if (type >= TileType_Dirt && type <= TileType_Stone) {
+                        g.sprite( tile_textures[type][0], pos, 15.0/16.0, 0 );
+                    }
+                }
+            }
+        }
+    } 
+    else if (room == Room_End) { // if end screen
         player_target_pos.val() + GG.camera().posY() - player.pos().y => float distance_from_threshold; 
-        Math.max(0, distance_from_threshold) * screen_zeno.val() +=> scroll_dist;
+        Math.max(0, distance_from_threshold) * screen_zeno.val() => float scroll_dist;
         GG.camera().translateY(-scroll_dist);
 
-        // death condition
-        if (gametime > 3 && room == Room_Play && player.pos().y > GG.camera().posY() + 5) {
-            die();
-        }
-
-        // spawn more blocks 
-        scroll_dist -=> spawn_dist;
-        while (spawn_dist < 0) {
-            shift();
-            1.0 +=> spawn_dist;
+        if (player.pos().y <= g.screen_min.y && !ended) {
+            true => ended;
+            repeat(9) {
+                shiftEmpty();
+            }
+            shiftEggMiddle();
+            repeat(3) {
+                shiftAllType(TileType_Dirt);
+            }
         }
     }
 
 
-    g.pushLayer(1); { // draw player
+    g.pushLayer(1); if (!player_exploded) { // draw player
         (player.animation_time_secs / .05) $ int % 4 => int curr_frame;
-        g.sprite(
-            chicken_sprite, 4, curr_frame,
-            player.pos(), player_size.val() * @(player.facing, 1), 0, Color.WHITE
-        );
-        // g.circleFilled(player.pos(), .25, tile_colors[player.tool]);
-    
-        // debug draw neighbording
-        if (p.draw_b2_debug.val()) {
-            if (player.tile_left != null) g.circle(player.tile_left.pos(), .1, Color.WHITE);
-            if (player.tile_right != null) g.circle(player.tile_right.pos(), .1, Color.WHITE);
-            if (player.tile_down != null) g.circle(player.tile_down.pos(), .1, Color.WHITE);
+        if (!playerEgg) {
+            g.sprite(
+                chicken_sprite, 4, curr_frame,
+                player.pos(), player_size.val() * @(player.facing, 1), 0, Color.WHITE
+            );
+
+            // g.circleFilled(player.pos(), .25, tile_colors[player.tool]);
+        
+            // debug draw neighbording
+            if (p.draw_b2_debug.val()) {
+                if (player.tile_left != null) g.circle(player.tile_left.pos(), .1, Color.WHITE);
+                if (player.tile_right != null) g.circle(player.tile_right.pos(), .1, Color.WHITE);
+                if (player.tile_down != null) g.circle(player.tile_down.pos(), .1, Color.WHITE);
+            }
+
+            // draw tool
+            player.tool_scale_spring.x + 1 => float tool_sca;
+            g.sprite( tile_tools[player.tool], player.pos() + @(0,.0), tool_sca * .5 * @(-player.facing, 1), 0, Color.WHITE);
+        } else {
+            gridpos(player.pos()) => vec2 gridpos;
+            gridpos.x $ int => int row;
+            gridpos.y $ int => int col;
+            tilemap[row][col+1] @=> Tile tile_right;
+            tilemap[row][col-1] @=> Tile tile_left;
+            tilemap[row+1][col] @=> Tile tile_down;
+
+            Tile @ tile;
+            if (tile_left != null && tile_left.type == TileType_Egg) tile_left @=> tile;
+            if (tile_right != null && tile_right.type == TileType_Egg) tile_right @=> tile;
+            if (tile_down != null && tile_down.type == TileType_Egg) tile_down @=> tile;
+            g.sprite(
+                egg_sprite, 5, 0,
+                tile.pos(), (15.0/16) * @(1,1), 0, Color.WHITE
+            );
         }
-
-        // draw tool
-        player.tool_scale_spring.x + 1 => float tool_sca;
-        g.sprite( tile_tools[player.tool], player.pos() + @(0,.0), tool_sca * .5 * @(-player.facing, 1), 0, Color.WHITE);
-
     } g.popLayer();
 
     // update and draw tiles
@@ -1468,6 +1677,9 @@ while (1) {
                     spike_sprite, 12, curr_frame,
                     tile.pos(), @(1,1), 0, Color.WHITE
                 );
+            }
+            else if (tile.type == TileType_Obsidian) {
+                g.sprite( obsidian_sprite, pos, (15.0/16), 0);
             }
             else if (tile.type == TileType_Egg) {
                 // .05 * M.rot2vec(gametime * 3) => vec2 delta;
@@ -1549,5 +1761,14 @@ while (1) {
         player.vel() => player.prev_vel;
         player.tool_scale_spring.update(dt);
     }
-}
 
+    if (death_sequence) { // death
+        false => death_sequence;
+        bgm_play.stop();
+        true => player.dead;
+        b2Body.disable(player.b2_body_id);
+
+        // Math.max(score, highscore) => highscore;
+        // GG.camera().posY(0);
+    }
+}

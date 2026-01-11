@@ -9,6 +9,7 @@ public class BGM_Playing
     {
         buffy.pos(0);
         buffy.gain(0.9);
+        buffy.rate(1);
     }
     
     fun void stop()
@@ -30,6 +31,7 @@ public class BGM_Opening
     {
         buffy.pos(0);
         buffy.gain(1.0);
+        buffy.rate(1);
     }
 
     fun void stop()
