@@ -865,7 +865,7 @@ public class G2D_Text
 	) {
 		if (text_count == text_pool.size()) {
 			text_pool << new GText;
-			text_pool[-1].align(1);
+			text_pool[-1].align(0);
 		}
 		text_pool[text_count] @=> GText@ gtext;
 

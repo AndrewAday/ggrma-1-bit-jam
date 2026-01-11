@@ -75,6 +75,7 @@ TODO:
 @import "lib/M.ck"
 @import "lib/T.ck"
 @import "lib/b2/b2DebugDraw.ck"
+@import "sfx.ck"
 @import "sound.ck"
 @import "HashMap.chug"
 @import "spring.ck"
@@ -104,7 +105,7 @@ G2D g;
 g.antialias(true);
 GText.defaultFont("chugl:proggy-tiny");
 
-1.2 => float aspect;
+1.5 => float aspect;
 GWindow.sizeLimits(0, 0, 0, 0, @(aspect, 1));
 GWindow.center();
 
@@ -148,6 +149,30 @@ Texture.load(me.dir() + "./assets/egg_unlock.png", tex_load_desc) @=> Texture eg
 
 // == sound ================================
 CKFXR sfx => dac;
+
+Sound snd(128);
+// TODO: play background music
+spork ~ snd.play(snd.SOUND_BGM, 0.5, 1.0, 1);
+// spork ~ metronome(128);
+snd.syncBeat(now);
+
+fun void metronome(float bpm) {
+    (60.0 / bpm / 4) * second => dur beatDur;
+    
+    SndBuf click => Gain g => dac;
+    1 => g.gain;
+    
+    SinOsc sine => ADSR adsr => g;
+    440.0 => sine.freq;
+    
+    while (true) {
+        adsr.keyOn();
+        50::ms => now;
+        adsr.keyOff();
+        
+        beatDur - 50::ms => now;
+    }
+}
 
 // == graphics helpers ================================
 
@@ -362,6 +387,25 @@ Physics p;
     null,
 ] @=> Texture tile_tools[];
 
+[
+    null, // none
+    [snd.SOUND_SOIL1, snd.SOUND_SOIL2], // soil
+    [snd.SOUND_WOOD1, snd.SOUND_WOOD2], // wood
+    [snd.SOUND_STONE1, snd.SOUND_STONE2, snd.SOUND_STONE3], // stone
+    null, // coin
+    null, // spike
+    [snd.SOUND_EGG]
+] @=> int tile_sounds[][];
+
+string eventbox_text[0];
+
+[
+    "You wonder whether you or the egg came first.",
+    "The depths call to you.",
+    "You wonder why you are here.",
+    "You wonder if Betsy ever did manage to cross the road."
+] @=> string random_event_text[];
+
 /*
 Egg mechanic: need X coins/keys to open lock. After openning, need to break the egg to get the power
 - will become clear what type of egg it is after opening 
@@ -376,6 +420,8 @@ Egg mechanic: need X coins/keys to open lock. After openning, need to break the 
     "jeggernaut",
     "connegg",
 ] @=> string egg_names[];
+
+int firstEggSpawned;
 
 class Player {
     int b2_body_id;
@@ -520,6 +566,10 @@ class Tile {
 
         // TODO only spawn egg if we have enough coins
         if (Math.randomf() < egg_probability.val()) {
+            if (!firstEggSpawned) {
+                eventbox_text << "You feel like you should break the egg.";
+                true => firstEggSpawned;
+            }
             egg(pos, Math.random2(0, EggType_Count - 1));
             return;
         }
@@ -661,6 +711,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
             // u a broke boi
             // TODO sound effect
             // TODO flavor text: "u r a poor chicken"
+            eventbox_text << "You don't have enough coins brokie.";
             return;
         }
 
@@ -713,6 +764,14 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
         [tile] @=> Tile connected_tiles[];
         if (player.eggs[EggType_Connection]) allConnected(row, col) @=> connected_tiles;
 
+        spork ~ snd.play(
+            tile_sounds[tile.type][Math.random2(0, tile_sounds[tile.type].size() - 1)], // path
+            1.0, // gain
+            1.0, // rate
+            0, // loop
+            4 // gridDivision
+        );
+
         for (auto tile : connected_tiles) {
             Math.max(0, tile.hp - dmg) => tile.hp;
             (tile.hp == 0) => int destroyed;
@@ -733,6 +792,8 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                     levelUpEffect("+", tile_tools[player.tool], player.pos() + .5*g.UP, .3, .6);
                 }
 
+                eventbox_text << "YOU MINED A TILE HUEHUEH...";
+
                 // acquire egg
                 if (tile.type == TileType_Egg) {
                     <<< "acquiring egg", egg_names[tile.egg_type] >>>;
@@ -741,6 +802,20 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
                     // TODO add egg acquire juice
 
                     // on acquire egg logic
+                    if (tile.egg_type == EggType_Spoiled) {
+                        "You feel disappointed." => string spoiled_text;
+                        if (Math.random2(0, 1)) {
+                            "You knew something smelled off." => spoiled_text;
+                        }
+                        eventbox_text << spoiled_text;
+                    } else {
+                        "You feel ashamed... But stronger." => string non_spoiled_text;
+                        if (Math.random2(0, 1)) {
+                            "Why did you do that????" => non_spoiled_text;
+                        }
+                        eventbox_text << non_spoiled_text;
+                    }
+
                     if (tile.egg_type == EggType_Juggernaut) {
                         .9 => player_size.val;
                         player.remakeCollider();
@@ -873,7 +948,7 @@ while (1) {
 
         .2 -=> pos.x;
         1 -=> pos.y;
-        (gametime / .1)$int % 6 => int curr_frame; 
+        (gametime / .1)$int % 6 => int curr_frame;
         g.sprite(
             coin_sprite, 6, curr_frame,
             pos, .5 * @(1, 1), 0, Color.WHITE
@@ -884,7 +959,7 @@ while (1) {
         // tool exp progress
         progressBar(
             1.0 *  player.tool_exp[player.tool] / player.expToLevel(player.tool),
-            pos + @(.8, .25),
+            pos + @(1.0, .25),
             .3,
             2.0
         );
@@ -905,8 +980,32 @@ while (1) {
         g.sprite( pickaxe_sprite, pos, .3, 0 );
         g.text("" + player.tool_level[TileType_Stone], pos + @(.4, 0), .45);
         if (player.tool == TileType_Stone) g.square(pos, 0, active_tool_sz, Color.WHITE);
+    } 
+    
+    { // event box
+        g.n2w(-.95, 1-(1*aspect)) => vec2 pos;
 
+        g.pushLayer(1);
+        g.box(pos - @(-1.5, -0.5), 3, 5, Color.WHITE);
+        g.popLayer();
 
+        g.pushLayer(0.5);
+        g.boxFilled(pos - @(-1.5, 4.375), 3, 5, Color.BLACK);
+        g.popLayer();
+
+        g.pushTextControlPoint(@(0, 1));
+        g.pushTextMaxWidth(2.75);
+        for (int i; i < eventbox_text.size(); ++i) {
+            g.text(eventbox_text[i], pos - @(-0.175, -2.85 + 0.75 * (eventbox_text.size() - 1 - i)), .3);
+        }
+        g.popTextMaxWidth();
+        g.popTextControlPoint();
+
+        if (Math.randomf() < .001 && random_event_text.size() > 0) {
+            Math.random2(0, random_event_text.size()-1) => int randIx;
+            eventbox_text << random_event_text[randIx];
+            random_event_text.erase(randIx);
+        }
     }
 
     { // egg list
@@ -978,6 +1077,7 @@ while (1) {
             n_coins++;
             sfx.coin(72, 76);
             tile.empty();
+            eventbox_text << "Your pockets feel a little bit heavier.";
         }
     }
 
@@ -1061,6 +1161,7 @@ while (1) {
             if (delta > 8) {
                 <<< delta >>>;
                 camera_shake_spring.pull(delta * .05);
+                eventbox_text << "That was a big fall. You peed a little.";
             }
         }
     }
