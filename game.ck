@@ -123,6 +123,7 @@ GText.defaultFont("chugl:proggy-tiny");
 1.5 => float aspect;
 GWindow.sizeLimits(0, 0, 0, 0, @(aspect, 1));
 GWindow.center();
+GWindow.title("EGGSCAVATE");
 
 GG.camera().viewSize(10);
 
@@ -130,6 +131,9 @@ GG.camera().viewSize(10);
 TextureLoadDesc tex_load_desc;
 true => tex_load_desc.flip_y;
 false => tex_load_desc.gen_mips;
+
+Texture.load(me.dir() + "./assets/credits.png", tex_load_desc) @=> Texture credits_sprite;
+
 Texture.load(me.dir() + "./assets/coin.png", tex_load_desc) @=> Texture coin_single_sprite;
 Texture.load(me.dir() + "./assets/coin_anim.png", tex_load_desc) @=> Texture coin_sprite; // 100::ms per frame
 Texture.load(me.dir() + "./assets/chicken-hat1.png", tex_load_desc) @=> Texture chicken_sprite; // 50::ms per frame
@@ -1370,12 +1374,6 @@ while (1) {
 
 
     if (GG.camera().posY() > - 10) {
-
-        { // credits
-        }
-
-
-
         if (GWindow.keyDown(GWindow.KEY_TAB)) {
             tab_rot_spring.pull(.1);
             tab_sca_spring.pull(.1);
@@ -1398,6 +1396,11 @@ while (1) {
 
         g.sprite( grass_sprite, @(0, 20), title_sca.val() * @(3.62,1), 0 );
         g.sprite( grass_sprite, @(0, 20), title_sca.val() * @(3.62,1), 0 );
+        g.sprite( grass_sprite, @(0, 20), title_sca.val() * @(3.62,1), 0 );
+
+        if (!player.dead && player.pos().x > -4.5 && player.pos().x < -4) { // credits
+            g.sprite(credits_sprite, @(-4.3, -1.55), 3.0* @(2, 1), 0);
+        }
         
         5 + .03 * Math.sin(now/second * 1.5) => float title_y;
         // 5.2 => float title_y;
