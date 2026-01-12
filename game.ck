@@ -296,7 +296,7 @@ fun void levelUpEffect(string text, Texture@ t, vec2 pos, float dy, float sz) {
 }
 
 fun void progressBar(
-    float percentage, vec2 pos, float width, float height
+    float percentage, vec2 pos, float width, float height, int draw_chicken
 ) {
     width * .5 => float hw;
     height * .5 => float hh;
@@ -304,11 +304,20 @@ fun void progressBar(
     g.box(pos - @(0, hh), 2 * hw, 2 * hh, Color.WHITE);
 
     (percentage * 2 * hh) => float end_y;
-    g.boxFilled(
-        pos - @(hw, 0), // bot left
-        pos + @(hw, -end_y),   // top right
-        Color.WHITE
-    );
+
+    pos - @(hw, 0) => vec2 bl;
+    pos + @(hw, -end_y) => vec2 tr;
+
+    if (draw_chicken) {
+        g.pushLayer(1);
+        g.sprite(
+            chicken_sprite, 4, 0,
+            tr + @(-hw, 0), .3 * @(player.facing, 1), 0, Color.WHITE
+        );
+        g.popLayer();
+    } else {
+        g.boxFilled( bl, tr, Color.WHITE);
+    }
 }
 
 
@@ -652,7 +661,7 @@ class Tile {
         T.assert(egg_type < EggType_Count, "invalid egg type");
         egg_type => this.egg_type;
         TileType_Egg => type;
-        difficulty * 12 => max_hp; // tweak egg hp
+        Math.min(difficulty,7) * 10 => max_hp; // tweak egg hp
         max_hp => hp;
         5 => cost_to_unlock;
         _destroyBody();
@@ -1329,8 +1338,8 @@ fun void init() {
 
         player.eggs.zero();
         // true => player.eggs[1];
-        // true => player.eggs[EggType_Foot];
-        // player.remakeCollider();
+        true => player.eggs[EggType_Foot];
+        player.remakeCollider();
 
         0 => n_coins;
 
@@ -1531,7 +1540,8 @@ while (1) {
             1.0 *  player.tool_exp[player.tool] / player.expToLevel(player.tool),
             pos + @(1.0, .25),
             .3,
-            2.0
+            2.0,
+            false
         );
 
         // tool levels
@@ -1601,6 +1611,22 @@ while (1) {
                 }
             }
             g.popTextControlPoint();
+
+            // progress bar
+            end_depths[end_depth_ix] => float end_depth;
+
+            .75 * (g.screen_max.y - g.screen_min.y) + g.screen_min.y => pos.y;
+            g.text("start", pos, .4);
+            .2 -=> pos.y;
+            progressBar(
+                depth / end_depth,
+                pos,
+                .1,
+                .5 * g.screen_h,
+                true
+            );
+            (.5 * g.screen_h) + .2 -=> pos.y;
+            g.text("???", pos, .4);
         }
 
         // depth markers
