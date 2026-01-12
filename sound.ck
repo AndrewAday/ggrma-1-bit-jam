@@ -144,7 +144,7 @@ public class Sound {
         }
 
         bufs[ix] => Gain g => pz;
-        gain + 5 => g.gain;
+        gain => g.gain;
         rate => bufs[ix].rate;
         loop => bufs[ix].loop;
         0 => bufs[ix].pos;
