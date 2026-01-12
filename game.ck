@@ -445,7 +445,7 @@ int depth500;
 int depth1000;
 
 [
-    200,
+    200.,
     500.,
     1000.,
 ] @=> float end_depths[];
