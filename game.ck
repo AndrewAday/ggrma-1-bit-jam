@@ -461,6 +461,13 @@ int depth1000;
     200.,
     500.,
     1000.,
+    2000.,
+    3500.,
+    5500.,
+    8000.,
+    11000.,
+    14500.,
+    18500.
 ] @=> float end_depths[];
 0 => int end_depth_ix;
 
@@ -857,8 +864,8 @@ fun void endingAnimation() {
     // spawn chicken to mine you
     wait(5::second);
 
-    true => newChicken;
     Player p @=> other;
+    true => newChicken;
     other.pos(g.n2w(-0.25, 1.2));
 
     while (!newChickenFallen) {
@@ -914,6 +921,10 @@ fun void endingAnimation() {
     b2.destroyBody(other.b2_body_id);
     null @=> other;
     false => ended;
+    false => newChicken;
+    false => newChickenFallen;
+    false => newChickenPlayerCollision;
+    0 => lastEggFrame;
     Room_Play => room;
     end_depth_ix++;
 
