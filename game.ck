@@ -661,7 +661,7 @@ class Tile {
         T.assert(egg_type < EggType_Count, "invalid egg type");
         egg_type => this.egg_type;
         TileType_Egg => type;
-        Math.min(difficulty,7) * 10 => max_hp; // tweak egg hp
+        Math.min(difficulty,7) * 5 => max_hp; // tweak egg hp
         max_hp => hp;
         5 => cost_to_unlock;
         _destroyBody();
@@ -1345,8 +1345,8 @@ fun void init() {
 
         player.eggs.zero();
         // true => player.eggs[1];
-        true => player.eggs[EggType_Foot];
-        player.remakeCollider();
+        // true => player.eggs[EggType_Foot];
+        // player.remakeCollider();
 
         0 => n_coins;
 
@@ -1400,7 +1400,7 @@ while (1) {
     // difficulty incr every N seconds
     (1 + (gametime / seconds_per_level.val())) $ int => difficulty; 
 
-    if (do_ui) { // ui
+    if (false && do_ui) { // ui
         UI.text("difficulty: " + difficulty);
         UI.text("gametime: " + gametime);
         UI.slider("screen zeno", screen_zeno, 0, 1);
@@ -1574,7 +1574,7 @@ while (1) {
         progressBar(
             1.0 *  player.tool_exp[player.tool] / player.expToLevel(player.tool),
             pos + @(1.0, .25),
-            .3,
+            .1,
             2.0,
             false
         );
@@ -1884,8 +1884,8 @@ while (1) {
     if (room == Room_Play) {
         if (!player.dead) {
             // update camera
-            Math.min(.8, camera_speed.val() + .04 * difficulty) => float cam_scroll_speed;
-            Math.min(2.5, player_target_pos.val() + .4 * difficulty) => float threshold_pos;
+            Math.min(.7, camera_speed.val() + .08 * difficulty) => float cam_scroll_speed;
+            Math.min(2.25, player_target_pos.val() + .6 * difficulty) => float threshold_pos;
 
             dt * cam_scroll_speed => float scroll_dist;
             threshold_pos + GG.camera().posY() - player.pos().y => float distance_from_threshold; 
