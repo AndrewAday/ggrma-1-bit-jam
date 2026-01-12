@@ -788,6 +788,13 @@ Spring wasd_sca_spring(0, 420, 8);
 Spring tab_rot_spring(0, 100, 8);
 Spring tab_sca_spring(0, 420, 8);
 
+Spring tool1_rot_spring(0, 100, 8);
+Spring tool1_sca_spring(0, 420, 8);
+Spring tool2_rot_spring(0, 100, 8);
+Spring tool2_sca_spring(0, 420, 8);
+Spring tool3_rot_spring(0, 100, 8);
+Spring tool3_sca_spring(0, 420, 8);
+
 HashMap visited_tiles;
 // optimize: don't recreate array every frame
 fun Tile[] allConnected(int row, int col) {
@@ -1416,6 +1423,19 @@ while (1) {
         if (GWindow.keyDown(GWindow.KEY_TAB)) {
             tab_rot_spring.pull(.1);
             tab_sca_spring.pull(.1);
+
+            if (player.tool == TileType_Stone) {
+                tool1_rot_spring.pull(0.2);
+                tool1_sca_spring.pull(0.2);
+            }
+            if (player.tool == TileType_Dirt) {
+                tool2_rot_spring.pull(0.2);
+                tool2_sca_spring.pull(0.2);
+            }
+            if (player.tool == TileType_Wood) {
+                tool3_rot_spring.pull(0.2);
+                tool3_sca_spring.pull(0.2);
+            }
         }
 
         if (
@@ -1432,6 +1452,13 @@ while (1) {
         wasd_sca_spring.update(dt);
         tab_rot_spring.update(dt);
         tab_sca_spring.update(dt);
+        
+        tool1_rot_spring.update(dt);
+        tool1_sca_spring.update(dt);
+        tool2_rot_spring.update(dt);
+        tool2_sca_spring.update(dt);
+        tool3_rot_spring.update(dt);
+        tool3_sca_spring.update(dt);
 
 
 
@@ -1447,7 +1474,8 @@ while (1) {
             &&
             player.pos().y < 1
         ) { // credits
-            g.sprite(credits_sprite, @(-4.3, -1.55), 3.0* @(2, 1), 0);
+            1 + .02 * Math.sin(now/second * 1.5) => float credits_sca;
+            g.sprite(credits_sprite, @(-4.3, -1.45), 3.0* @(2, 1) * credits_sca, 0);
         }
         
         5 + .03 * Math.sin(now/second * 1.5) => float title_y;
@@ -1499,9 +1527,16 @@ while (1) {
         g.popLayer();
 
         // draw mining symbols
-        g.sprite( shovel_sprite, @(1, -.5), .5, 0 );
-        g.sprite( axe_sprite, @(1, -1.5), .5, 0 );
-        g.sprite( pickaxe_sprite, @(1, -2.5), .5, 0 );
+        0.5 + .05 * Math.sin(now/second * 1.5) => float tool_sca;
+        1 + tool1_sca_spring.x => float tool1_sca;
+        1 + tool2_sca_spring.x => float tool2_sca;
+        1 + tool3_sca_spring.x => float tool3_sca;
+        tool1_rot_spring.x => float tool1_rot;
+        tool2_rot_spring.x => float tool2_rot;
+        tool3_rot_spring.x => float tool3_rot;
+        g.sprite( shovel_sprite, @(1, -.5), tool_sca * tool1_sca, tool1_rot );
+        g.sprite( axe_sprite, @(1, -1.5), tool_sca * tool2_sca, tool2_rot );
+        g.sprite( pickaxe_sprite, @(1, -2.5), tool_sca * tool3_sca, tool3_rot );
 
         // lerp camera towards target (after breaking block)
         if (room == Room_Start && player.pos().y < -4) {
