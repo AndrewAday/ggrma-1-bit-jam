@@ -134,6 +134,8 @@ false => tex_load_desc.gen_mips;
 
 Texture.load(me.dir() + "./assets/credits.png", tex_load_desc) @=> Texture credits_sprite;
 
+Texture.load(me.dir() + "./assets/firefly.png", tex_load_desc) @=> Texture firefly_sprite;
+
 Texture.load(me.dir() + "./assets/coin.png", tex_load_desc) @=> Texture coin_single_sprite;
 Texture.load(me.dir() + "./assets/coin_anim.png", tex_load_desc) @=> Texture coin_sprite; // 100::ms per frame
 Texture.load(me.dir() + "./assets/chicken-hat1.png", tex_load_desc) @=> Texture chicken_sprite; // 50::ms per frame
@@ -173,6 +175,7 @@ Texture.load(me.dir() + "./assets/egg_types/egg-spots.png", tex_load_desc) @=> T
 Texture.load(me.dir() + "./assets/egg_types/egg-tetris.png", tex_load_desc) @=> Texture egg_tetris_sprite;
 Texture.load(me.dir() + "./assets/egg_types/egg-plus.png", tex_load_desc) @=> Texture egg_plus_sprite;
 Texture.load(me.dir() + "./assets/egg_types/egg-foot.png", tex_load_desc) @=> Texture egg_foot_sprite;
+// Texture.load(me.dir() + "./assets/egg_types/egg-special.png", tex_load_desc) @=> Texture egg_special_sprite;
 
 // start screen art
 Texture.load(me.dir() + "./assets/start_screen/title.png", tex_load_desc) @=> Texture title_sprite;
@@ -329,6 +332,10 @@ class Physics {
 
 
     fun int createBody(vec2 pos, int body_type, int category, float sz, int is_sensor, b2Polygon@ geo) {
+        return createBody(pos, body_type, category, sz, is_sensor, geo, 0);
+    }
+
+    fun int createBody(vec2 pos, int body_type, int category, float sz, int is_sensor, b2Polygon@ geo, int mask) {
         b2BodyDef player_body_def;
         pos => player_body_def.position;
         body_type => player_body_def.type;
@@ -341,6 +348,7 @@ class Physics {
         // filter
         b2Filter player_filter;
         category => player_filter.categoryBits;
+        0xFFFFFFF ^ mask => player_filter.maskBits; // disallow player-player collision
 
         // shape
         b2ShapeDef player_shape_def;
@@ -364,7 +372,8 @@ Physics p;
 0 => int EntityType_None;
 1 => int EntityType_Player;
 2 => int EntityType_Tile;
-3 => int EntityType_Static;
+4 => int EntityType_Static;
+8 => int EntityType_Spike;
 
 0 => int TileType_None; // empty space
 1 => int TileType_Dirt; // shovel
@@ -436,7 +445,7 @@ fun void addEventText(string s) {
 
         spork ~ snd.play(
             snd.SOUND_MESSAGE,
-            1.0, // gain
+            16.0, // gain
             1.0, // rate
             0, // loop
             4 // gridDivision
@@ -494,6 +503,7 @@ Egg mechanic: need X coins/keys to open lock. After openning, need to break the 
 1 => int EggType_Juggernaut; // become larger. move slower. do more dmg
 2 => int EggType_Connection; // damaging a tile damages all tiles of the same time that are connected
 3 => int EggType_Foot; // spike immunity
+// 4 => int EggType_Special; // last egg
 4 => int EggType_Count; // become larger. move slower. do more dmg
 
 [
@@ -501,6 +511,7 @@ Egg mechanic: need X coins/keys to open lock. After openning, need to break the 
     "jeggernaut",
     "connegg",
     "chickenfoot",
+    // "eggo"
 ] @=> string egg_names[];
 
 [
@@ -508,6 +519,7 @@ Egg mechanic: need X coins/keys to open lock. After openning, need to break the 
     egg_plus_sprite,
     egg_tetris_sprite,
     egg_foot_sprite,
+    // egg_special_sprite,
 ] @=> Texture egg_sprites[];
 int firstEggSpawned;
 
@@ -542,7 +554,9 @@ class Player {
     fun void remakeCollider() {
         pos() => vec2 old_pos;
         b2.destroyBody(b2_body_id);
-        p.createBody(old_pos, b2BodyType.dynamicBody, EntityType_Player, player_size.val() * 16.0/18, false, null) => b2_body_id;
+        p.createBody(old_pos, b2BodyType.dynamicBody, EntityType_Player, player_size.val() * 16.0/18, false, null, 
+        eggs[EggType_Foot] ?  EntityType_Spike : 0
+        ) => b2_body_id;
     }
 
     fun int expToLevel(int tool_type) {
@@ -623,17 +637,15 @@ class Tile {
         0 => max_hp;
         0 => hp;
         _destroyBody();
-        p.createBody(pos, b2BodyType.staticBody, TileType_Coin, .68, true, null) => b2_body_id;
+        p.createBody(pos, b2BodyType.staticBody, EntityType_Tile, .68, true, null) => b2_body_id;
         b2body_to_tile_map.set(b2_body_id, this);
     }
 
     fun void egg(vec2 pos, int egg_type) {
         T.assert(egg_type < EggType_Count, "invalid egg type");
-        // TODO: should egg HP be displayed??
-        // do we need a cracking egg animation?
         egg_type => this.egg_type;
         TileType_Egg => type;
-        difficulty * 15 => max_hp; // tweak egg hp
+        difficulty * 12 => max_hp; // tweak egg hp
         max_hp => hp;
         5 => cost_to_unlock;
         _destroyBody();
@@ -653,21 +665,21 @@ class Tile {
             @(0, -.25),    // center (local space)
             0 // rotation radians
         ) @=> b2Polygon geo;
-        p.createBody(pos, b2BodyType.staticBody, TileType_Spike, 0.0, false, geo) => b2_body_id;
+        p.createBody(pos, b2BodyType.staticBody, EntityType_Spike, 0.0, false, geo) => b2_body_id;
         b2body_to_tile_map.set(b2_body_id, this);
     }
     
     fun void randomize(vec2 pos) {
         // first: have a fixed n% chance of spawning a coin
-        if (rows_to_next_coin == 0) {
-            Math.random2(4, 15) => rows_to_next_coin;
+        if (rows_to_next_coin <= 0 && Math.randomf() < .05) {
+            Math.random2(4, 12) => rows_to_next_coin;
             coin(pos);
             return;
         }
 
         // only spawn egg if we have enough coins
-        if (rows_to_next_egg <= 0 && (n_coins > 5)) {
-            Math.random2(25, 40) => rows_to_next_egg;
+        if (rows_to_next_egg <= 0 && (n_coins > 5) && Math.randomf() < .05) {
+            Math.random2(25, 36) => rows_to_next_egg;
             if (!firstEggSpawned) {
                 addEventText("You feel like you should break the egg.");
                 true => firstEggSpawned;
@@ -858,7 +870,7 @@ fun void endingAnimation() {
     camera_shake_spring.pull(8 * .05);
     spork ~ snd.play(
         Math.random2(snd.SOUND_BAWK0, snd.SOUND_BAWK4),
-        4.0, // gain
+        2.0, // gain
         1.0, // rate
         0, // loop
         4 // gridDivision
@@ -880,7 +892,7 @@ fun void endingAnimation() {
         wait((0.1 + 1.5 / (i + 1))::second);
         spork ~ snd.play(
             tile_sounds[TileType_Egg][Math.random2(0, tile_sounds[TileType_Egg].size() - 1)], // path
-            1.0, // gain
+            0.75, // gain
             1.0, // rate
             0, // loop
             4 // gridDivision
@@ -933,7 +945,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
         
             spork ~ snd.play(
                 snd.SOUND_WRONG_TOOL,
-                1.0, // gain
+                8.0, // gain
                 1.0, // rate
                 0, // loop
                 4 // gridDivision
@@ -946,7 +958,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
 
         spork ~ snd.play(
             snd.SOUND_INSERT_COIN, // path
-            1.0, // gain
+            2.0, // gain
             1.0, // rate
             0, // loop
             4 // gridDivision
@@ -1001,7 +1013,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
 
         spork ~ snd.play(
             tile_sounds[tile.type][Math.random2(0, tile_sounds[tile.type].size() - 1)], // path
-            1.0, // gain
+            0.75, // gain
             1.0, // rate
             0, // loop
             4 // gridDivision
@@ -1026,7 +1038,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
 
                     spork ~ snd.play(
                         snd.SOUND_POWERUP,
-                        1.0, // gain
+                        6.0, // gain
                         1.0, // rate
                         0, // loop
                         4 // gridDivision
@@ -1059,7 +1071,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
 
                         spork ~ snd.play(
                             snd.SOUND_SPOILED_EGG_UPGRADE,
-                            1.0, // gain
+                            6.0, // gain
                             1.0, // rate
                             0, // loop
                             4 // gridDivision
@@ -1074,7 +1086,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
 
                         spork ~ snd.play(
                             snd.SOUND_EGG_UPGRADE,
-                            1.0, // gain
+                            6.0, // gain
                             1.0, // rate
                             0, // loop
                             4 // gridDivision
@@ -1093,6 +1105,7 @@ fun void mine(Tile tile, int row, int col, int dir) { // returns true if tile wa
 
                     if (tile.egg_type == EggType_Foot) {
                         addEventText("You obtained chickenfoot! Your feet feel stronger.");
+                        player.remakeCollider();
                     }
                 }
                 tile.empty();
@@ -1269,6 +1282,7 @@ fun void init() {
         1.0 => spawn_dist;
 
         Math.random2(1, 3) => rows_to_next_coin;
+        Math.random2(25, 40) => rows_to_next_egg;
 
         // init tiles
         for (int row; row < MINE_H.val(); row++) {
@@ -1305,6 +1319,7 @@ fun void init() {
         player.eggs.zero();
         // true => player.eggs[1];
         // true => player.eggs[EggType_Foot];
+        // player.remakeCollider();
 
         0 => n_coins;
 
@@ -1341,6 +1356,10 @@ fun int legal(int r, int c) {
     return (r >= 0 && r < MINE_H.val()) && (c >= 0 && c < MINE_W.val());
 }
 
+
+// wait for init... super jank
+repeat(5) GG.nextFrame() => now;
+
 while (1) {
     GG.nextFrame() => now;
     GG.dt() => float dt;
@@ -1368,6 +1387,10 @@ while (1) {
         UI.slider("title size", title_sca, 0, 10);
     }
 
+    // always grass to stop flickering glitch
+    g.sprite( grass_sprite, @(0, 20), @(3.62,1), 0 );
+    g.sprite( grass_sprite, @(0, 20), @(3.62,1), 0 );
+    g.sprite( grass_sprite, @(0, 20), @(3.62,1), 0 );
 
     if (GG.camera().posY() > - 10) {
         if (GWindow.keyDown(GWindow.KEY_TAB)) {
@@ -1390,11 +1413,20 @@ while (1) {
         tab_rot_spring.update(dt);
         tab_sca_spring.update(dt);
 
-        g.sprite( grass_sprite, @(0, 20), title_sca.val() * @(3.62,1), 0 );
-        g.sprite( grass_sprite, @(0, 20), title_sca.val() * @(3.62,1), 0 );
-        g.sprite( grass_sprite, @(0, 20), title_sca.val() * @(3.62,1), 0 );
 
-        if (!player.dead && player.pos().x > -4.5 && player.pos().x < -4) { // credits
+
+        (now/second) => float t;
+        .05 * @( Math.cos(1.7 * t), Math.sin(2.1 * t)) => vec2 delta;
+        (2 * (now / second))$int % 2 => int curr_frame;
+        g.sprite(
+            firefly_sprite, 2, curr_frame,
+            delta + @(-4.3, .5), .5 * @(1, 1), 0, Color.WHITE
+        );
+        if (
+            !player.dead && player.pos().x > -4.5 && player.pos().x < -4
+            &&
+            player.pos().y < 1
+        ) { // credits
             g.sprite(credits_sprite, @(-4.3, -1.55), 3.0* @(2, 1), 0);
         }
         
@@ -1548,7 +1580,7 @@ while (1) {
         // g.boxFilled(@(MINE_W.val() * .5 + border_w * .5, center_y), 
         // border_w, 1.1 * (g.screen_max.y - g.screen_min.y), Color.WHITE);
 
-        if (!player.dead) {
+        if (!player.dead && room == Room_Play) {
             g.pushTextControlPoint(1, .5);
             for (int egg_type; egg_type < EggType_Count; ++egg_type) {
                 if (player.eggs[egg_type]) {
@@ -1635,14 +1667,14 @@ while (1) {
 
             spork ~ snd.play(
                 snd.SOUND_COIN,
-                1.0, // gain
+                2.0, // gain
                 1.0, // rate
                 0, // loop
                 4 // gridDivision
             );
 
             tile.empty();
-            addEventText("Your pockets feel heavier.");
+            if (Math.randomf() < .2) addEventText("Your pockets feel heavier.");
         }
     }
 
@@ -1657,7 +1689,7 @@ while (1) {
 
             spork ~ snd.play(
                 snd.SOUND_TOOL_CHANGE,
-                1.0, // gain
+                2.0, // gain
                 1.0, // rate
                 0, // loop
                 4 // gridDivision
@@ -1780,8 +1812,8 @@ while (1) {
     if (room == Room_Play) {
         if (!player.dead) {
             // update camera
-            Math.min(.7, camera_speed.val() + .02 * difficulty) => float cam_scroll_speed;
-            Math.min(2.0, player_target_pos.val() + .2 * difficulty) => float threshold_pos;
+            Math.min(.8, camera_speed.val() + .04 * difficulty) => float cam_scroll_speed;
+            Math.min(2.5, player_target_pos.val() + .4 * difficulty) => float threshold_pos;
 
             dt * cam_scroll_speed => float scroll_dist;
             threshold_pos + GG.camera().posY() - player.pos().y => float distance_from_threshold; 
@@ -1807,7 +1839,7 @@ while (1) {
 
                 spork ~ snd.play(
                     snd.SOUND_DEATH,
-                    32.0, // gain
+                    16.0, // gain
                     1.0, // rate
                     0, // loop
                     4 // gridDivision
