@@ -11,6 +11,10 @@ public class Spring {
     }
 
     fun void update(float dt) {
+        // hack of clamping to 59fps to prevent numerical instability.
+        // a more robust solution would be stepping with a fixed timestep (e.g. in a while loop)
+        // or using backwards / symplectic euler integration
+        Math.min(.017, dt) => dt; 
         -k*(x - target_x) - d*v => float a;
         a*dt +=> v;
         v*dt +=> x;
